@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'onboarding.dart';
 
 // Макет Orbit: все данные выдуманные, сервера нет. Реальная логика лежит в папке later/.
 
@@ -18,7 +20,7 @@ class OrbitaMock extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: seed, useMaterial3: true),
       darkTheme: ThemeData(colorSchemeSeed: seed, brightness: Brightness.dark, useMaterial3: true),
-      home: const Shell(),
+      home: const Gate(),
     );
   }
 }
@@ -371,5 +373,41 @@ class ProfilePage extends StatelessWidget {
         ),
       ),
     ]);
+  }
+}
+
+// Показывает приветствие при первом запуске, дальше сразу главное приложение.
+class Gate extends StatefulWidget {
+  const Gate({super.key});
+  @override
+  State<Gate> createState() => _GateState();
+}
+
+class _GateState extends State<Gate> {
+  bool? done;
+
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      if (mounted) setState(() => done = p.getBool('onboarded') ?? false);
+    }).catchError((_) {
+      if (mounted) setState(() => done = false);
+    });
+  }
+
+  Future<void> finish() async {
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool('onboarded', true);
+    } catch (_) {}
+    if (mounted) setState(() => done = true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final d = done;
+    if (d == null) return const Scaffold(backgroundColor: Color(0xFF040716));
+    return d ? const Shell() : Onboarding(onDone: finish);
   }
 }
