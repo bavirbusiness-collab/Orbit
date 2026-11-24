@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-// Макет «Орбиты»: все данные выдуманные, сервера нет. Реальная логика лежит в папке later/.
+// Макет Orbit: все данные выдуманные, сервера нет. Реальная логика лежит в папке later/.
 
 void main() => runApp(const OrbitaMock());
 
@@ -14,7 +14,7 @@ class OrbitaMock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Орбита',
+      title: 'Orbit',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: seed, useMaterial3: true),
       darkTheme: ThemeData(colorSchemeSeed: seed, brightness: Brightness.dark, useMaterial3: true),
