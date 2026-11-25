@@ -827,6 +827,110 @@ class _ChannelPageState extends State<ChannelPage> {
   }
 }
 
+class EditProfilePage extends StatefulWidget {
+  const EditProfilePage({super.key});
+  @override
+  State<EditProfilePage> createState() => _EditProfilePageState();
+}
+
+class _EditProfilePageState extends State<EditProfilePage> {
+  final name = TextEditingController(text: Session.name);
+  final about = TextEditingController(text: Session.about);
+  bool hasPhoto = Session.hasPhoto;
+
+  @override
+  void dispose() {
+    name.dispose();
+    about.dispose();
+    super.dispose();
+  }
+
+  void pickPhoto() {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          ListTile(
+            leading: const Icon(Icons.photo_camera_outlined),
+            title: const Text('Сделать фото'),
+            onTap: () {
+              Navigator.pop(ctx);
+              setState(() => hasPhoto = true);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.photo_library_outlined),
+            title: const Text('Выбрать из галереи'),
+            onTap: () {
+              Navigator.pop(ctx);
+              setState(() => hasPhoto = true);
+            },
+          ),
+          if (hasPhoto)
+            ListTile(
+              leading: const Icon(Icons.delete_outline),
+              title: const Text('Убрать фото'),
+              onTap: () {
+                Navigator.pop(ctx);
+                setState(() => hasPhoto = false);
+              },
+            ),
+        ]),
+      ),
+    );
+  }
+
+  Future<void> save() async {
+    Session.name = name.text.trim();
+    Session.about = about.text.trim();
+    Session.hasPhoto = hasPhoto;
+    profileRevision.value++;
+    final p = await SharedPreferences.getInstance();
+    await p.setString('name', Session.name);
+    await p.setString('about', Session.about);
+    await p.setBool('hasPhoto', hasPhoto);
+    if (mounted) Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ok = name.text.trim().isNotEmpty;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Изменить профиль')),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        Center(
+          child: GestureDetector(
+            onTap: pickPhoto,
+            child: Stack(children: [
+              hasPhoto
+                  ? const CircleAvatar(radius: 52, backgroundColor: teal, child: Icon(Icons.image, color: Colors.white, size: 50))
+                  : const CircleAvatar(radius: 52, backgroundColor: seed, child: Icon(Icons.person, color: Colors.white, size: 50)),
+              const Positioned(right: 0, bottom: 0, child: CircleAvatar(radius: 16, child: Icon(Icons.add_a_photo, size: 16))),
+            ]),
+          ),
+        ),
+        const SizedBox(height: 24),
+        TextField(
+          controller: name,
+          maxLength: 60,
+          textCapitalization: TextCapitalization.words,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(labelText: 'Имя', border: const OutlineInputBorder(), errorText: ok ? null : 'Имя обязательно'),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: about,
+          maxLength: 120,
+          maxLines: 3,
+          decoration: const InputDecoration(labelText: 'О себе', border: OutlineInputBorder()),
+        ),
+        const SizedBox(height: 8),
+        FilledButton(onPressed: ok ? save : null, child: const Padding(padding: EdgeInsets.all(14), child: Text('Сохранить'))),
+      ]),
+    );
+  }
+}
+
 // ---------- Настройки ----------
 
 class SettingsPage extends StatefulWidget {
@@ -1352,11 +1456,35 @@ class _CallPageState extends State<CallPage> {
 
 // ---------- Профиль ----------
 
-class ProfilePage extends StatelessWidget {
+final profileRevision = ValueNotifier<int>(0);
+
+class ProfilePage extends StatefulWidget {
   const ProfilePage({super.key});
+  @override
+  State<ProfilePage> createState() => _ProfilePageState();
+}
+
+class _ProfilePageState extends State<ProfilePage> {
+  @override
+  void initState() {
+    super.initState();
+    SharedPreferences.getInstance().then((p) {
+      Session.about = p.getString('about') ?? Session.about;
+      Session.hasPhoto = p.getBool('hasPhoto') ?? Session.hasPhoto;
+      if (mounted) profileRevision.value++;
+    });
+  }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      ValueListenableBuilder<int>(valueListenable: profileRevision, builder: (context, _, __) => _page(context));
+
+  String get initials {
+    final n = Session.name.trim();
+    return n.isEmpty ? 'ВЫ' : n.split(RegExp(r'\s+')).take(2).map((w) => w[0].toUpperCase()).join();
+  }
+
+  Widget _page(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return ListView(padding: EdgeInsets.zero, children: [
       Container(height: 150, decoration: const BoxDecoration(gradient: LinearGradient(colors: [seed, teal]))),
@@ -1365,12 +1493,12 @@ class ProfilePage extends StatelessWidget {
         child: Transform.translate(
           offset: const Offset(0, -40),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            CircleAvatar(radius: 42, backgroundColor: cs.surface, child: const Avatar('ВЫ', seed, size: 76)),
+            CircleAvatar(radius: 42, backgroundColor: cs.surface, child: Session.hasPhoto ? const CircleAvatar(radius: 38, backgroundColor: teal, child: Icon(Icons.image, color: Colors.white, size: 38)) : Avatar(initials, seed, size: 76)),
             const SizedBox(height: 8),
             Text(Session.name.isEmpty ? 'Ваше имя' : Session.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
             Text(Session.phone.isEmpty ? '@username' : Session.phone, style: TextStyle(color: cs.onSurfaceVariant)),
             const SizedBox(height: 6),
-            const Text('Короткое описание профиля.'),
+            Text(Session.about.isEmpty ? 'Добавьте пару слов о себе' : Session.about, style: Session.about.isEmpty ? TextStyle(color: cs.onSurfaceVariant) : null),
             const SizedBox(height: 12),
             const Row(children: [
               Text('128 ', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -1380,11 +1508,18 @@ class ProfilePage extends StatelessWidget {
               Text('подписок'),
             ]),
             const SizedBox(height: 16),
-            OutlinedButton.icon(
-              onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
-              icon: const Icon(Icons.settings_outlined),
-              label: const Text('Настройки'),
-            ),
+            Wrap(spacing: 8, children: [
+              FilledButton.icon(
+                onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const EditProfilePage())),
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('Изменить'),
+              ),
+              OutlinedButton.icon(
+                onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
+                icon: const Icon(Icons.settings_outlined),
+                label: const Text('Настройки'),
+              ),
+            ]),
             const SizedBox(height: 12),
             const Wrap(spacing: 8, children: [
               Chip(label: Text('Видео'), backgroundColor: seed, labelStyle: TextStyle(color: Colors.white)),

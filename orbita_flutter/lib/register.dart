@@ -14,6 +14,8 @@ const _teal = Color(0xFF2FD3B5);
 class Session {
   static String phone = '';
   static String name = '';
+  static String about = '';
+  static bool hasPhoto = false;
 }
 
 class RegisterFlow extends StatefulWidget {
