@@ -338,7 +338,7 @@ class _NewChatPageState extends State<NewChatPage> {
         ),
         ListTile(leading: const CircleAvatar(child: Icon(Icons.group_add_outlined)), title: const Text('Создать группу'), onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const NewGroupPage()))),
         ListTile(leading: const CircleAvatar(child: Icon(Icons.campaign_outlined)), title: const Text('Создать канал'), onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const NewChannelPage()))),
-        ListTile(leading: const CircleAvatar(child: Icon(Icons.public)), title: const Text('Создать орбиту'), onTap: () {}),
+        ListTile(leading: const CircleAvatar(child: Icon(Icons.public)), title: const Text('Создать орбиту'), onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const NewOrbitPage()))),
         const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text('Друзья в Orbit', style: TextStyle(fontWeight: FontWeight.w600))),
         for (final p in list)
           ListTile(
