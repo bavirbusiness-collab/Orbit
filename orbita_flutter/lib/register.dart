@@ -1,9 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'live.dart';
 import 'onboarding.dart' show StarsPainter;
 
 // Регистрация как в WhatsApp: 1 номер телефона, 2 код из SMS, 3 имя (обязательно) и фото (по желанию).
-// Макет: SMS не отправляются, подходит любой 6-значный код, фото не загружается.
+// Тестовый режим: SMS-провайдер ещё не подключён, сервер показывает код на экране. Фото пока не загружается.
 
 const _bgTop = Color(0xFF040716);
 const _bgBottom = Color(0xFF0C1445);
@@ -39,13 +40,16 @@ class _RegisterFlowState extends State<RegisterFlow> {
             }));
         break;
       case 1:
-        body = CodeStep(phone: Session.phone, onBack: () => setState(() => stage = 0), onNext: () => setState(() => stage = 2));
+        body = CodeStep(phone: Session.phone, onBack: () => setState(() => stage = 0), onNext: (needsProfile) {
+          if (needsProfile) {
+            setState(() => stage = 2);
+          } else {
+            widget.onDone();
+          }
+        });
         break;
       default:
-        body = ProfileStep(onDone: (n) {
-          Session.name = n;
-          widget.onDone();
-        });
+        body = ProfileStep(onDone: () => widget.onDone());
     }
     return Theme(
       data: ThemeData(colorSchemeSeed: _accent, brightness: Brightness.dark, useMaterial3: true),
@@ -127,7 +131,31 @@ class _PhoneStepState extends State<PhoneStep> {
         ],
       ),
     );
-    if (ok == true) widget.onNext(full);
+    if (ok != true) return;
+    final sent = await live.requestCode(full);
+    if (!mounted) return;
+    if (sent) {
+      widget.onNext(full);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(live.error ?? 'Не удалось отправить код')));
+    }
+  }
+
+  Future<void> editServer() async {
+    final c = TextEditingController(text: live.server);
+    final v = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Адрес сервера'),
+        content: TextField(controller: c, keyboardType: TextInputType.url, decoration: const InputDecoration(hintText: 'https://...')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Отмена')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, c.text), child: const Text('Сохранить')),
+        ],
+      ),
+    );
+    if (v != null) await live.setServer(v);
+    if (mounted) setState(() {});
   }
 
   @override
@@ -161,7 +189,15 @@ class _PhoneStepState extends State<PhoneStep> {
         style: TextStyle(fontSize: 13, height: 1.4, color: Colors.white.withValues(alpha: 0.6)),
       ),
       const SizedBox(height: 24),
-      FilledButton(onPressed: valid ? confirm : null, child: const Padding(padding: EdgeInsets.all(14), child: Text('Продолжить'))),
+      ListenableBuilder(
+        listenable: live,
+        builder: (context, _) => FilledButton(
+          onPressed: valid && !live.busy ? confirm : null,
+          child: Padding(padding: const EdgeInsets.all(14), child: Text(live.busy ? 'Отправляем…' : 'Продолжить')),
+        ),
+      ),
+      const SizedBox(height: 8),
+      TextButton(onPressed: editServer, child: Text('Сервер: ${live.server}', style: const TextStyle(fontSize: 12))),
     ]);
   }
 }
@@ -171,7 +207,7 @@ class _PhoneStepState extends State<PhoneStep> {
 class CodeStep extends StatefulWidget {
   final String phone;
   final VoidCallback onBack;
-  final VoidCallback onNext;
+  final void Function(bool needsProfile) onNext;
   const CodeStep({super.key, required this.phone, required this.onBack, required this.onNext});
   @override
   State<CodeStep> createState() => _CodeStepState();
@@ -206,10 +242,18 @@ class _CodeStepState extends State<CodeStep> {
     super.dispose();
   }
 
-  void onChanged(String v) {
+  Future<void> onChanged(String v) async {
     setState(() {});
-    // Макет: любой 6-значный код считается верным.
-    if (v.length == 6) widget.onNext();
+    if (v.length != 6) return;
+    final r = await live.verify(widget.phone, v);
+    if (!mounted) return;
+    if (r == null) {
+      code.clear();
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(live.error ?? 'Не удалось проверить код')));
+    } else {
+      widget.onNext(r);
+    }
   }
 
   @override
@@ -246,12 +290,16 @@ class _CodeStepState extends State<CodeStep> {
         ),
       ]),
       const SizedBox(height: 16),
-      Text('В макете подойдёт любой код из 6 цифр.', style: TextStyle(fontSize: 13, color: _teal.withValues(alpha: 0.9))),
+      if (live.devCode != null) Text('Тестовый режим. Ваш код: ${live.devCode}', style: TextStyle(fontSize: 14, color: _teal.withValues(alpha: 0.9))),
       const SizedBox(height: 16),
       Center(
         child: left > 0
             ? Text('Отправить код ещё раз через $left с', style: TextStyle(color: Colors.white.withValues(alpha: 0.6)))
-            : TextButton(onPressed: _startTimer, child: const Text('Отправить код ещё раз')),
+            : TextButton(
+                onPressed: () async {
+                  if (await live.requestCode(widget.phone)) _startTimer();
+                },
+                child: const Text('Отправить код ещё раз')),
       ),
       Center(child: TextButton(onPressed: widget.onBack, child: const Text('Изменить номер'))),
     ]);
@@ -261,7 +309,7 @@ class _CodeStepState extends State<CodeStep> {
 // ---------- 3. Имя и фото ----------
 
 class ProfileStep extends StatefulWidget {
-  final void Function(String name) onDone;
+  final VoidCallback onDone;
   const ProfileStep({super.key, required this.onDone});
   @override
   State<ProfileStep> createState() => _ProfileStepState();
@@ -350,7 +398,23 @@ class _ProfileStepState extends State<ProfileStep> {
         decoration: const InputDecoration(border: OutlineInputBorder(), labelText: 'Ваше имя', helperText: 'Обязательно'),
       ),
       const SizedBox(height: 12),
-      FilledButton(onPressed: n.isEmpty ? null : () => widget.onDone(n), child: const Padding(padding: EdgeInsets.all(14), child: Text('Готово'))),
+      ListenableBuilder(
+        listenable: live,
+        builder: (context, _) => FilledButton(
+          onPressed: n.isEmpty || live.busy
+              ? null
+              : () async {
+                  final ok = await live.saveProfile(n, '');
+                  if (!context.mounted) return;
+                  if (ok) {
+                    widget.onDone();
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(live.error ?? 'Не удалось сохранить')));
+                  }
+                },
+          child: const Padding(padding: EdgeInsets.all(14), child: Text('Готово')),
+        ),
+      ),
     ]);
   }
 }

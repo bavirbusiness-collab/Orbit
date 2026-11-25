@@ -10,8 +10,8 @@ const DEV = process.env.NODE_ENV !== 'production'; // в dev код входа �
 const db = new DatabaseSync(process.env.DB || 'orbita.db');
 db.exec(`
 PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;
-CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, email TEXT UNIQUE NOT NULL, username TEXT UNIQUE COLLATE NOCASE, name TEXT, bio TEXT DEFAULT '', created INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS codes(email TEXT PRIMARY KEY, code TEXT NOT NULL, expires INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY, phone TEXT UNIQUE NOT NULL, name TEXT NOT NULL DEFAULT '', bio TEXT DEFAULT '', created INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS codes(phone TEXT PRIMARY KEY, code TEXT NOT NULL, expires INTEGER NOT NULL, tries INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS sessions(id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), token_hash TEXT UNIQUE NOT NULL, device TEXT, created INTEGER NOT NULL, last_seen INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS chats(id INTEGER PRIMARY KEY, type TEXT NOT NULL CHECK(type IN('direct','group')), title TEXT, owner_id INTEGER, expires INTEGER, created INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS members(chat_id INTEGER NOT NULL REFERENCES chats(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id), role TEXT NOT NULL DEFAULT 'member', PRIMARY KEY(chat_id,user_id));
@@ -44,8 +44,8 @@ function push(userIds, event, data) {
 const memberIds = chatId => q('SELECT user_id FROM members WHERE chat_id=?', chatId).map(r => r.user_id);
 
 // ---- модели ----
-const pubUser = u => u && { id: u.id, username: u.username, name: u.name, bio: u.bio };
-const msgOut = m => ({ id: m.id, chatId: m.chat_id, senderId: m.sender_id, text: m.deleted ? null : m.text, replyTo: m.reply_to, created: m.created, edited: m.edited, deleted: !!m.deleted });
+const pubUser = u => u && { id: u.id, phone: u.phone, name: u.name, bio: u.bio };
+const msgOut = m => ({ id: m.id, chatId: m.chat_id, senderId: m.sender_id, senderName: (one('SELECT name FROM users WHERE id=?', m.sender_id) || {}).name || '', text: m.deleted ? null : m.text, replyTo: m.reply_to, created: m.created, edited: m.edited, deleted: !!m.deleted });
 function needMember(chatId, uid) {
   const c = one('SELECT * FROM chats WHERE id=?', chatId);
   if (!c || (c.expires && c.expires < now())) bad('Чат не найден', 404);
@@ -64,51 +64,58 @@ function str(v, name, max, min = 0) {
 const routes = [];
 const route = (method, path, auth, fn) => routes.push({ method, re: new RegExp('^' + path.replace(/:(\w+)/g, '(?<$1>[^/]+)') + '$'), auth, fn });
 
+const normPhone = v => {
+  const p = '+' + String(v ?? '').replace(/\D/g, '');
+  if (!/^\+\d{8,15}$/.test(p)) bad('Некорректный номер телефона');
+  return p;
+};
+
 route('POST', '/auth/request', false, ({ body, ip }) => {
-  const email = str(body.email, 'email', 120, 5).toLowerCase();
-  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) bad('Некорректный e-mail');
-  limit('code:' + ip, 10, 3600e3); limit('code:' + email, 3, 600e3);
+  const phone = normPhone(body.phone);
+  limit('code:' + ip, 10, 3600e3); limit('code:' + phone, 3, 600e3);
   const code = String(crypto.randomInt(0, 1e6)).padStart(6, '0');
-  run('INSERT INTO codes(email,code,expires,tries) VALUES(?,?,?,0) ON CONFLICT(email) DO UPDATE SET code=excluded.code,expires=excluded.expires,tries=0', email, sha(code), now() + 600e3);
-  if (DEV) console.log(`[dev] код для ${email}: ${code}`); // в проде здесь отправка письма
+  run('INSERT INTO codes(phone,code,expires,tries) VALUES(?,?,?,0) ON CONFLICT(phone) DO UPDATE SET code=excluded.code,expires=excluded.expires,tries=0', phone, sha(code), now() + 600e3);
+  // Тестовый режим: код возвращается в ответе (SMS-провайдер ещё не подключён).
+  // В проде (NODE_ENV=production без SMS_TEST_MODE) здесь должна быть отправка SMS.
+  if (DEV) console.log(`[dev] код для ${phone}: ${code}`);
   return DEV ? { ok: true, devCode: code } : { ok: true };
 });
 
 route('POST', '/auth/verify', false, ({ body, ip }) => {
-  const email = str(body.email, 'email', 120, 5).toLowerCase(), code = str(String(body.code ?? ''), 'code', 6, 6);
+  const phone = normPhone(body.phone), code = str(String(body.code ?? ''), 'code', 6, 6);
   limit('verify:' + ip, 30, 3600e3);
-  const c = one('SELECT * FROM codes WHERE email=?', email);
+  const c = one('SELECT * FROM codes WHERE phone=?', phone);
   if (!c || c.expires < now()) bad('Код недействителен или истёк', 401);
   if (c.tries >= 5) bad('Слишком много попыток, запросите новый код', 429);
-  run('UPDATE codes SET tries=tries+1 WHERE email=?', email);
+  run('UPDATE codes SET tries=tries+1 WHERE phone=?', phone);
   if (c.code !== sha(code)) bad('Неверный код', 401);
-  run('DELETE FROM codes WHERE email=?', email);
-  let u = one('SELECT * FROM users WHERE email=?', email);
-  if (!u) { run('INSERT INTO users(email,name,created) VALUES(?,?,?)', email, email.split('@')[0], now()); u = one('SELECT * FROM users WHERE email=?', email); }
+  run('DELETE FROM codes WHERE phone=?', phone);
+  let u = one('SELECT * FROM users WHERE phone=?', phone);
+  if (!u) { run('INSERT INTO users(phone,name,created) VALUES(?,?,?)', phone, '', now()); u = one('SELECT * FROM users WHERE phone=?', phone); }
   const token = crypto.randomBytes(32).toString('hex');
   run('INSERT INTO sessions(user_id,token_hash,device,created,last_seen) VALUES(?,?,?,?,?)', u.id, sha(token), String(body.device || 'unknown').slice(0, 60), now(), now());
-  return { token, user: pubUser(u), needsProfile: !u.username };
+  return { token, user: pubUser(u), needsProfile: !u.name };
 });
 
-route('GET', '/me', true, ({ user }) => ({ user: pubUser(user), email: user.email }));
+route('GET', '/me', true, ({ user }) => ({ user: pubUser(user) }));
 
 route('PATCH', '/me', true, ({ user, body }) => {
   const name = body.name !== undefined ? str(body.name, 'name', 60, 1) : user.name;
   const bio = body.bio !== undefined ? str(body.bio, 'bio', 200) : user.bio;
-  let username = user.username;
-  if (body.username !== undefined) {
-    username = str(body.username, 'username', 32, 3).replace(/^@/, '');
-    if (!/^[A-Za-z][A-Za-z0-9_]{2,31}$/.test(username)) bad('Username: латиница, цифры и _, начинается с буквы, 3–32 символа');
-    const t = one('SELECT id FROM users WHERE username=? AND id<>?', username, user.id);
-    if (t) bad('Этот username занят', 409);
-  }
-  run('UPDATE users SET name=?,bio=?,username=? WHERE id=?', name, bio, username, user.id);
+  run('UPDATE users SET name=?,bio=? WHERE id=?', name, bio, user.id);
   return { user: pubUser(one('SELECT * FROM users WHERE id=?', user.id)) };
 });
 
-route('GET', '/users/search', true, ({ query }) => {
-  const s = str(query.q || '', 'q', 40, 2).replace(/^@/, '').replace(/[%_\\]/g, m => '\\' + m);
-  return { users: q("SELECT * FROM users WHERE username IS NOT NULL AND (username LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\') LIMIT 20", s + '%', '%' + s + '%').map(pubUser) };
+// Поиск как в WhatsApp: по номеру телефона (цифры) или по имени. Видны только пользователи с именем.
+route('GET', '/users/search', true, ({ user, query }) => {
+  const raw = str(query.q || '', 'q', 40, 2);
+  const esc = x => x.replace(/[%_\\]/g, m => '\\' + m);
+  const digits = raw.replace(/\D/g, '');
+  const byPhone = digits.length >= 5 && /^[+\d\s()-]+$/.test(raw);
+  const rows = byPhone
+    ? q("SELECT * FROM users WHERE name<>'' AND id<>? AND phone LIKE ? ESCAPE '\\' LIMIT 20", user.id, '%' + esc(digits) + '%')
+    : q("SELECT * FROM users WHERE name<>'' AND id<>? AND name LIKE ? ESCAPE '\\' LIMIT 20", user.id, '%' + esc(raw) + '%');
+  return { users: rows.map(pubUser) };
 });
 
 route('GET', '/sessions', true, ({ user, sid }) =>

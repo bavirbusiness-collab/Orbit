@@ -8,9 +8,9 @@ const call = async (method, path, body, token) => {
   const r = await fetch(base + path, { method, headers: { 'content-type': 'application/json', ...(token ? { authorization: 'Bearer ' + token } : {}) }, body: body ? JSON.stringify(body) : undefined });
   return { s: r.status, j: await r.json() };
 };
-const login = async email => {
-  const a = await call('POST', '/auth/request', { email });
-  const v = await call('POST', '/auth/verify', { email, code: a.j.devCode, device: 'test' });
+const login = async phone => {
+  const a = await call('POST', '/auth/request', { phone });
+  const v = await call('POST', '/auth/verify', { phone, code: a.j.devCode, device: 'test' });
   assert.equal(v.s, 200); return v.j;
 };
 let passed = 0; const ok = (n) => { passed++; console.log('ok -', n); };
@@ -18,21 +18,25 @@ let passed = 0; const ok = (n) => { passed++; console.log('ok -', n); };
 server.listen(0, async () => {
   base = 'http://127.0.0.1:' + server.address().port;
   try {
-    const A = await login('anna@test.az'), B = await login('bob@test.az'), C = await login('cem@test.az');
+    const A = await login('+994 50 111 22 33'), B = await login('+994501112244'), C = await login('+994501112255');
     ok('вход по коду');
+    assert.equal(A.user.phone, '+994501112233'); ok('номер нормализуется');
+    assert.equal((await call('POST', '/auth/request', { phone: '123' })).s, 400); ok('короткий номер отклонён');
     assert.equal(A.needsProfile, true);
 
-    assert.equal((await call('POST', '/auth/verify', { email: 'anna@test.az', code: '000000' })).s, 401); ok('неверный/использованный код отклонён');
+    assert.equal((await call('POST', '/auth/verify', { phone: '+994501112233', code: '000000' })).s, 401); ok('неверный/использованный код отклонён');
     assert.equal((await call('GET', '/me')).s, 401); ok('без токена 401');
 
-    assert.equal((await call('PATCH', '/me', { username: 'anna_az', name: 'Анна' }, A.token)).s, 200);
-    assert.equal((await call('PATCH', '/me', { username: 'bob_x' }, B.token)).s, 200);
-    assert.equal((await call('PATCH', '/me', { username: 'cem_x' }, C.token)).s, 200);
-    assert.equal((await call('PATCH', '/me', { username: 'ANNA_az' }, B.token)).s, 409); ok('username уникален без учёта регистра');
-    assert.equal((await call('PATCH', '/me', { username: '1bad' }, B.token)).s, 400); ok('валидация username');
+    assert.equal((await call('PATCH', '/me', { name: 'Анна' }, A.token)).s, 200);
+    assert.equal((await call('PATCH', '/me', { name: 'Боб', bio: 'привет' }, B.token)).j.user.bio, 'привет');
+    assert.equal((await call('PATCH', '/me', { name: 'Джем' }, C.token)).s, 200);
+    assert.equal((await call('PATCH', '/me', { name: '  ' }, B.token)).s, 400); ok('имя обязательно');
 
-    const s = await call('GET', '/users/search?q=@anna', null, B.token);
-    assert.equal(s.j.users.length, 1); ok('поиск по @username');
+    const s1 = await call('GET', '/users/search?q=' + encodeURIComponent('Анн'), null, B.token);
+    assert.equal(s1.j.users.length, 1); ok('поиск по имени');
+    const s2 = await call('GET', '/users/search?q=' + encodeURIComponent('+994 50 111 22 33'), null, B.token);
+    assert.equal(s2.j.users.length, 1); assert.equal(s2.j.users[0].name, 'Анна'); ok('поиск по номеру телефона');
+    assert.equal((await call('GET', '/users/search?q=' + encodeURIComponent('Боб'), null, B.token)).j.users.length, 0); ok('себя в поиске нет');
     const idA = A.user.id, idB = B.user.id, idC = C.user.id;
 
     // SSE для Боба

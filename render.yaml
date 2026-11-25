@@ -1,0 +1,12 @@
+# Бесплатный тестовый сервер Orbit на Render (данные на бесплатном тарифе могут сбрасываться).
+services:
+  - type: web
+    name: orbit-server
+    runtime: node
+    plan: free
+    rootDir: server
+    buildCommand: "true"
+    startCommand: node server.js
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

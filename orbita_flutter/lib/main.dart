@@ -2,6 +2,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'chats_live.dart';
+import 'live.dart';
 import 'onboarding.dart';
 import 'register.dart';
 
@@ -44,7 +46,12 @@ class _ShellState extends State<Shell> {
 
   @override
   Widget build(BuildContext context) {
-    const pages = [ChatsPage(), StatusPage(), OrbitsPage(), ProfilePage()];
+    const pages = [
+      LiveChatsPage(),
+      ComingSoonPage(title: 'Статусы', icon: Icons.data_usage, text: 'Статусы на 24 часа появятся в одном из ближайших обновлений.'),
+      ComingSoonPage(title: 'Орбиты', icon: Icons.public, text: 'Орбиты, темы для чатов и каналов, пока в разработке. Скоро откроем.'),
+      ProfilePage(),
+    ];
     return Scaffold(
       body: IndexedStack(index: tab, children: pages),
       bottomNavigationBar: NavigationBar(
@@ -881,13 +888,15 @@ class _EditProfilePageState extends State<EditProfilePage> {
   }
 
   Future<void> save() async {
-    Session.name = name.text.trim();
-    Session.about = about.text.trim();
+    final ok = await live.saveProfile(name.text, about.text);
+    if (!mounted) return;
+    if (!ok) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(live.error ?? 'Не удалось сохранить')));
+      return;
+    }
     Session.hasPhoto = hasPhoto;
     profileRevision.value++;
     final p = await SharedPreferences.getInstance();
-    await p.setString('name', Session.name);
-    await p.setString('about', Session.about);
     await p.setBool('hasPhoto', hasPhoto);
     if (mounted) Navigator.pop(context);
   }
@@ -1469,7 +1478,6 @@ class _ProfilePageState extends State<ProfilePage> {
   void initState() {
     super.initState();
     SharedPreferences.getInstance().then((p) {
-      Session.about = p.getString('about') ?? Session.about;
       Session.hasPhoto = p.getBool('hasPhoto') ?? Session.hasPhoto;
       if (mounted) profileRevision.value++;
     });
@@ -1496,17 +1504,9 @@ class _ProfilePageState extends State<ProfilePage> {
             CircleAvatar(radius: 42, backgroundColor: cs.surface, child: Session.hasPhoto ? const CircleAvatar(radius: 38, backgroundColor: teal, child: Icon(Icons.image, color: Colors.white, size: 38)) : Avatar(initials, seed, size: 76)),
             const SizedBox(height: 8),
             Text(Session.name.isEmpty ? 'Ваше имя' : Session.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            Text(Session.phone.isEmpty ? '@username' : Session.phone, style: TextStyle(color: cs.onSurfaceVariant)),
+            Text(Session.phone, style: TextStyle(color: cs.onSurfaceVariant)),
             const SizedBox(height: 6),
             Text(Session.about.isEmpty ? 'Добавьте пару слов о себе' : Session.about, style: Session.about.isEmpty ? TextStyle(color: cs.onSurfaceVariant) : null),
-            const SizedBox(height: 12),
-            const Row(children: [
-              Text('128 ', style: TextStyle(fontWeight: FontWeight.bold)),
-              Text('подписчиков'),
-              SizedBox(width: 24),
-              Text('64 ', style: TextStyle(fontWeight: FontWeight.bold)),
-              Text('подписок'),
-            ]),
             const SizedBox(height: 16),
             Wrap(spacing: 8, children: [
               FilledButton.icon(
@@ -1521,23 +1521,23 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ]),
             const SizedBox(height: 12),
-            const Wrap(spacing: 8, children: [
-              Chip(label: Text('Видео'), backgroundColor: seed, labelStyle: TextStyle(color: Colors.white)),
-              Chip(label: Text('Сохранённое')),
-              Chip(label: Text('Репосты')),
-            ]),
-            const SizedBox(height: 12),
-            GridView.count(
-              crossAxisCount: 3,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              mainAxisSpacing: 6,
-              crossAxisSpacing: 6,
-              childAspectRatio: 3 / 4,
-              children: [
-                for (final c in const [seed, teal, rust])
-                  Container(decoration: BoxDecoration(color: c, borderRadius: BorderRadius.circular(10))),
-              ],
+            TextButton.icon(
+              onPressed: () async {
+                final ok = await showDialog<bool>(
+                  context: context,
+                  builder: (ctx) => AlertDialog(
+                    title: const Text('Выйти из аккаунта?'),
+                    content: const Text('Чтобы войти снова, понадобится код на ваш номер.'),
+                    actions: [
+                      TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена')),
+                      FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Выйти')),
+                    ],
+                  ),
+                );
+                if (ok == true) live.logout();
+              },
+              icon: const Icon(Icons.logout),
+              label: const Text('Выйти'),
             ),
           ]),
         ),
@@ -1560,13 +1560,12 @@ class _GateState extends State<Gate> {
   @override
   void initState() {
     super.initState();
-    SharedPreferences.getInstance().then((p) {
-      Session.phone = p.getString('phone') ?? '';
-      Session.name = p.getString('name') ?? '';
+    SharedPreferences.getInstance().then((p) async {
+      await live.init();
       if (mounted) {
         setState(() {
           onboarded = p.getBool('onboarded') ?? false;
-          registered = p.getBool('registered') ?? false;
+          registered = (p.getBool('registered') ?? false) && live.loggedIn;
         });
       }
     }).catchError((_) {
@@ -1588,8 +1587,6 @@ class _GateState extends State<Gate> {
   Future<void> finishRegister() async {
     await _save((p) {
       p.setBool('registered', true);
-      p.setString('phone', Session.phone);
-      p.setString('name', Session.name);
     });
     if (mounted) setState(() => registered = true);
   }
@@ -1599,7 +1596,9 @@ class _GateState extends State<Gate> {
     final o = onboarded;
     if (o == null) return const Scaffold(backgroundColor: Color(0xFF040716));
     if (!o) return Onboarding(onDone: finishOnboarding);
-    if (!registered) return RegisterFlow(onDone: finishRegister);
-    return const Shell();
+    return ListenableBuilder(
+      listenable: live,
+      builder: (context, _) => (!registered || !live.loggedIn) ? RegisterFlow(onDone: finishRegister) : const Shell(),
+    );
   }
 }
