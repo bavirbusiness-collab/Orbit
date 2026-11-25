@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'onboarding.dart';
+import 'register.dart';
 
 // Макет Orbit: все данные выдуманные, сервера нет. Реальная логика лежит в папке later/.
 
@@ -338,8 +339,8 @@ class ProfilePage extends StatelessWidget {
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             CircleAvatar(radius: 42, backgroundColor: cs.surface, child: const Avatar('ВЫ', seed, size: 76)),
             const SizedBox(height: 8),
-            const Text('Ваше имя', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
-            Text('@username', style: TextStyle(color: cs.onSurfaceVariant)),
+            Text(Session.name.isEmpty ? 'Ваше имя' : Session.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            Text(Session.phone.isEmpty ? '@username' : Session.phone, style: TextStyle(color: cs.onSurfaceVariant)),
             const SizedBox(height: 6),
             const Text('Короткое описание профиля.'),
             const SizedBox(height: 12),
@@ -376,7 +377,7 @@ class ProfilePage extends StatelessWidget {
   }
 }
 
-// Показывает приветствие при первом запуске, дальше сразу главное приложение.
+// Первый запуск: приветствие, затем регистрация, дальше сразу главное приложение.
 class Gate extends StatefulWidget {
   const Gate({super.key});
   @override
@@ -384,30 +385,52 @@ class Gate extends StatefulWidget {
 }
 
 class _GateState extends State<Gate> {
-  bool? done;
+  bool? onboarded;
+  bool registered = false;
 
   @override
   void initState() {
     super.initState();
     SharedPreferences.getInstance().then((p) {
-      if (mounted) setState(() => done = p.getBool('onboarded') ?? false);
+      Session.phone = p.getString('phone') ?? '';
+      Session.name = p.getString('name') ?? '';
+      if (mounted) {
+        setState(() {
+          onboarded = p.getBool('onboarded') ?? false;
+          registered = p.getBool('registered') ?? false;
+        });
+      }
     }).catchError((_) {
-      if (mounted) setState(() => done = false);
+      if (mounted) setState(() => onboarded = false);
     });
   }
 
-  Future<void> finish() async {
+  Future<void> _save(void Function(SharedPreferences p) f) async {
     try {
-      final p = await SharedPreferences.getInstance();
-      await p.setBool('onboarded', true);
+      f(await SharedPreferences.getInstance());
     } catch (_) {}
-    if (mounted) setState(() => done = true);
+  }
+
+  Future<void> finishOnboarding() async {
+    await _save((p) => p.setBool('onboarded', true));
+    if (mounted) setState(() => onboarded = true);
+  }
+
+  Future<void> finishRegister() async {
+    await _save((p) {
+      p.setBool('registered', true);
+      p.setString('phone', Session.phone);
+      p.setString('name', Session.name);
+    });
+    if (mounted) setState(() => registered = true);
   }
 
   @override
   Widget build(BuildContext context) {
-    final d = done;
-    if (d == null) return const Scaffold(backgroundColor: Color(0xFF040716));
-    return d ? const Shell() : Onboarding(onDone: finish);
+    final o = onboarded;
+    if (o == null) return const Scaffold(backgroundColor: Color(0xFF040716));
+    if (!o) return Onboarding(onDone: finishOnboarding);
+    if (!registered) return RegisterFlow(onDone: finishRegister);
+    return const Shell();
   }
 }
