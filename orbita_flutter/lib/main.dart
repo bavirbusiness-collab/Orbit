@@ -89,6 +89,21 @@ class ChatItem {
 
 final chatsRevision = ValueNotifier<int>(0);
 
+class Orbit {
+  String name;
+  Color color;
+  List<String> items; // названия чатов, групп и каналов
+  Orbit(this.name, this.color, this.items);
+}
+
+final orbits = <Orbit>[
+  Orbit('Рыбалка', seed, ['Руслан', 'Клёв на Мингечевире']),
+  Orbit('Учёба', teal, ['Группа 11-Б']),
+  Orbit('Семья', rust, ['Мама']),
+];
+final orbitFilter = ValueNotifier<String?>(null); // выбранная орбита в списке чатов
+final orbitsRevision = ValueNotifier<int>(0);
+
 final chatItems = <ChatItem>[
   ChatItem('Руслан', 'Завтра на озеро в семь?', '11:42', 'Р', seed, 2),
   ChatItem('Группа 11-Б', 'Лейла: конспект уже в канале', '10:15', 'Г', teal, 0, true, ['Лейла', 'Рустам', 'Нигяр']),
@@ -116,16 +131,29 @@ class ChatsPage extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: SearchBar(hintText: 'Поиск людей, чатов, видео', leading: const Icon(Icons.search), elevation: const WidgetStatePropertyAll(0)),
         ),
-        const Padding(
-          padding: EdgeInsets.symmetric(horizontal: 16),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Wrap(spacing: 8, children: [
-            Chip(label: Text('Все'), backgroundColor: seed, labelStyle: TextStyle(color: Colors.white)),
-            Chip(label: Text('Рыбалка')),
-            Chip(label: Text('Учёба')),
-            Chip(label: Text('Семья')),
+            ChoiceChip(
+              label: const Text('Все'),
+              selected: orbitFilter.value == null,
+              onSelected: (_) {
+                orbitFilter.value = null;
+                chatsRevision.value++;
+              },
+            ),
+            for (final o in orbits)
+              ChoiceChip(
+                label: Text(o.name),
+                selected: orbitFilter.value == o.name,
+                onSelected: (_) {
+                  orbitFilter.value = o.name;
+                  chatsRevision.value++;
+                },
+              ),
           ]),
         ),
-        for (final c in chatItems)
+        for (final c in chatItems.where((c) => orbitFilter.value == null || orbits.any((o) => o.name == orbitFilter.value && o.items.contains(c.name))))
           ListTile(
             leading: Avatar(c.initials, c.color),
             title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -945,8 +973,25 @@ class _StatusViewerState extends State<StatusViewer> with SingleTickerProviderSt
 class OrbitsPage extends StatelessWidget {
   const OrbitsPage({super.key});
 
-  Widget card(BuildContext context, Color color, String title, String sub, [List<(String, String)> items = const []]) {
+  ChatItem? find(String name) {
+    for (final c in chatItems) {
+      if (c.name == name) return c;
+    }
+    return null;
+  }
+
+  String kind(ChatItem c) => c.channel ? 'канал' : (c.group ? 'группа' : 'чат');
+
+  void open(BuildContext context, ChatItem c) => Navigator.push(
+        context,
+        MaterialPageRoute<void>(builder: (_) => c.channel ? ChannelPage(item: c) : ConversationPage(item: c)),
+      );
+
+  Widget card(BuildContext context, Orbit o) {
     final cs = Theme.of(context).colorScheme;
+    final found = [for (final n in o.items) if (find(n) != null) find(n)!];
+    final chats = found.where((c) => !c.channel).length;
+    final channels = found.where((c) => c.channel).length;
     return Card(
       elevation: 0,
       color: cs.surfaceContainerLow,
@@ -955,19 +1000,37 @@ class OrbitsPage extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            CircleAvatar(backgroundColor: color, child: const Icon(Icons.public, color: Colors.white)),
+            CircleAvatar(backgroundColor: o.color, child: const Icon(Icons.public, color: Colors.white)),
             const SizedBox(width: 12),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
-              Text(sub, style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
-            ])),
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(o.name, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600)),
+                Text('$chats чатов · $channels каналов', style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
+              ]),
+            ),
+            PopupMenuButton<String>(
+              onSelected: (v) {
+                if (v == 'del') {
+                  orbits.remove(o);
+                  if (orbitFilter.value == o.name) orbitFilter.value = null;
+                  orbitsRevision.value++;
+                  chatsRevision.value++;
+                }
+              },
+              itemBuilder: (_) => const [PopupMenuItem(value: 'del', child: Text('Удалить орбиту'))],
+            ),
           ]),
-          for (final it in items)
-            Container(
-              margin: const EdgeInsets.only(top: 8),
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(10)),
-              child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(it.$1), Text(it.$2, style: TextStyle(color: cs.onSurfaceVariant))]),
+          if (found.isEmpty) Padding(padding: const EdgeInsets.only(top: 8), child: Text('В орбите пока пусто', style: TextStyle(color: cs.onSurfaceVariant))),
+          for (final c in found)
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: () => open(context, c),
+              child: Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(10)),
+                child: Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [Text(c.name), Text(kind(c), style: TextStyle(color: cs.onSurfaceVariant))]),
+              ),
             ),
         ]),
       ),
@@ -976,20 +1039,96 @@ class OrbitsPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: orbitsRevision,
+      builder: (context, _, __) => Scaffold(
+        appBar: AppBar(title: const Text('Орбиты', style: TextStyle(fontWeight: FontWeight.bold))),
+        body: ListView(children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text('Чаты, группы и каналы по одной теме в одном месте. Орбиту можно выбрать как фильтр на экране «Чаты».'),
+          ),
+          for (final o in orbits) card(context, o),
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: OutlinedButton(
+              onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const NewOrbitPage())),
+              child: const Padding(padding: EdgeInsets.all(12), child: Text('Создать орбиту')),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class NewOrbitPage extends StatefulWidget {
+  const NewOrbitPage({super.key});
+  @override
+  State<NewOrbitPage> createState() => _NewOrbitPageState();
+}
+
+class _NewOrbitPageState extends State<NewOrbitPage> {
+  static const palette = [seed, teal, rust, Color(0xFF7C3AED), Color(0xFF1B6FB3)];
+  final name = TextEditingController();
+  Color color = seed;
+  final picked = <String>{};
+
+  @override
+  void dispose() {
+    name.dispose();
+    super.dispose();
+  }
+
+  bool get valid => name.text.trim().isNotEmpty && !orbits.any((o) => o.name.toLowerCase() == name.text.trim().toLowerCase());
+
+  void create() {
+    orbits.add(Orbit(name.text.trim(), color, picked.toList()));
+    orbitsRevision.value++;
+    chatsRevision.value++;
+    Navigator.pop(context);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final taken = name.text.trim().isNotEmpty && !valid;
     return Scaffold(
-      appBar: AppBar(title: const Text('Орбиты', style: TextStyle(fontWeight: FontWeight.bold))),
-      body: ListView(children: [
-        const Padding(
-          padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: Text('Чаты, каналы и видео по одной теме в одном месте.'),
+      appBar: AppBar(title: const Text('Новая орбита')),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        TextField(
+          controller: name,
+          maxLength: 40,
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(labelText: 'Название темы', helperText: 'Например: Работа, Спорт, Друзья', errorText: taken ? 'Такая орбита уже есть' : null, border: const OutlineInputBorder()),
         ),
-        card(context, seed, 'Рыбалка', '2 чата · 1 канал · 24 видео', const [('Руслан', 'чат'), ('Клёв на Мингечевире', 'канал'), ('Видео по теме', '24 ролика')]),
-        card(context, teal, 'Учёба', '1 группа · 3 канала'),
-        card(context, rust, 'Поездка в Шеки', 'временная комната · закроется через 6 дней'),
-        Padding(
-          padding: const EdgeInsets.all(16),
-          child: OutlinedButton(onPressed: () {}, child: const Padding(padding: EdgeInsets.all(12), child: Text('Создать орбиту'))),
-        ),
+        const SizedBox(height: 8),
+        const Text('Цвет', style: TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 8),
+        Row(children: [
+          for (final c in palette)
+            GestureDetector(
+              onTap: () => setState(() => color = c),
+              child: Container(
+                margin: const EdgeInsets.only(right: 12),
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(color: c, shape: BoxShape.circle, border: Border.all(color: color == c ? Colors.white : Colors.transparent, width: 3), boxShadow: color == c ? [BoxShadow(color: c, blurRadius: 6)] : null),
+              ),
+            ),
+        ]),
+        const SizedBox(height: 16),
+        Text('Что добавить в орбиту (${picked.length})', style: const TextStyle(fontWeight: FontWeight.w600)),
+        for (final c in chatItems)
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: Avatar(c.initials, c.color, size: 44),
+            title: Text(c.name),
+            subtitle: Text(c.channel ? 'канал' : (c.group ? 'группа' : 'чат')),
+            value: picked.contains(c.name),
+            onChanged: (v) => setState(() => v == true ? picked.add(c.name) : picked.remove(c.name)),
+          ),
+        const SizedBox(height: 12),
+        FilledButton(onPressed: valid ? create : null, child: const Padding(padding: EdgeInsets.all(14), child: Text('Создать орбиту'))),
       ]),
     );
   }
