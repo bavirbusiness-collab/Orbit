@@ -219,6 +219,7 @@ class _Bubble {
   final bool mine;
   final String time;
   final String? sub;
+  String? reaction;
   _Bubble(this.text, this.mine, this.time, {this.sub});
 }
 
@@ -267,16 +268,77 @@ class _ConversationPageState extends State<ConversationPage> {
     final fg = b.mine ? cs.onPrimary : cs.onSurfaceVariant;
     return Align(
       alignment: b.mine ? Alignment.centerRight : Alignment.centerLeft,
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        constraints: const BoxConstraints(maxWidth: 280),
-        decoration: BoxDecoration(color: b.mine ? cs.primary : cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(16)),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          Text(b.text, style: TextStyle(color: fg)),
-          if (b.sub != null) Text(b.sub!, style: TextStyle(color: cs.primary, fontSize: 12, fontWeight: FontWeight.w600)),
-          Text(b.time, style: TextStyle(color: fg.withValues(alpha: 0.7), fontSize: 11)),
-        ]),
+      child: GestureDetector(
+        onLongPress: () => pickReaction(b),
+        child: Container(
+          margin: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          constraints: const BoxConstraints(maxWidth: 280),
+          decoration: BoxDecoration(color: b.mine ? cs.primary : cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(16)),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+            Text(b.text, style: TextStyle(color: fg)),
+            if (b.sub != null) Text(b.sub!, style: TextStyle(color: cs.primary, fontSize: 12, fontWeight: FontWeight.w600)),
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Text(b.time, style: TextStyle(color: fg.withValues(alpha: 0.7), fontSize: 11)),
+              if (b.reaction != null) ...[
+                const SizedBox(width: 8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(color: fg.withValues(alpha: 0.15), borderRadius: BorderRadius.circular(10)),
+                  child: Text(b.reaction!, style: const TextStyle(fontSize: 13)),
+                ),
+              ],
+            ]),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  static const reactions = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+  void pickReaction(_Bubble b) {
+    showModalBottomSheet<void>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+              for (final r in reactions)
+                InkWell(
+                  borderRadius: BorderRadius.circular(24),
+                  onTap: () {
+                    Navigator.pop(ctx);
+                    setState(() => b.reaction = b.reaction == r ? null : r);
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: b.reaction == r ? BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer, shape: BoxShape.circle) : null,
+                    child: Text(r, style: const TextStyle(fontSize: 28)),
+                  ),
+                ),
+            ]),
+            const SizedBox(height: 8),
+            ListTile(
+              leading: const Icon(Icons.copy),
+              title: const Text('Копировать'),
+              onTap: () {
+                Clipboard.setData(ClipboardData(text: b.text));
+                Navigator.pop(ctx);
+              },
+            ),
+            if (b.reaction != null)
+              ListTile(
+                leading: const Icon(Icons.highlight_off),
+                title: const Text('Убрать реакцию'),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  setState(() => b.reaction = null);
+                },
+              ),
+          ]),
+        ),
       ),
     );
   }
