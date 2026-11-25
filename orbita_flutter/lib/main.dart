@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -102,6 +103,7 @@ final orbits = <Orbit>[
   Orbit('Семья', rust, ['Мама']),
 ];
 final chatQuery = ValueNotifier<String>('');
+final pinnedChats = <String>{};
 final orbitFilter = ValueNotifier<String?>(null); // выбранная орбита в списке чатов
 final orbitsRevision = ValueNotifier<int>(0);
 
@@ -186,9 +188,32 @@ class ChatsPage extends StatelessWidget {
             subtitle: Text(c.last, maxLines: 1, overflow: TextOverflow.ellipsis),
             trailing: Column(mainAxisAlignment: MainAxisAlignment.center, crossAxisAlignment: CrossAxisAlignment.end, children: [
               Text(c.time, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+              if (pinnedChats.contains(c.name)) Icon(Icons.push_pin, size: 14, color: cs.onSurfaceVariant),
               if (c.unread > 0) Badge(label: Text('${c.unread}')),
             ]),
             onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => c.channel ? ChannelPage(item: c) : ConversationPage(item: c))),
+            onLongPress: () => showModalBottomSheet<void>(
+              context: context,
+              builder: (ctx) => SafeArea(
+                child: Column(mainAxisSize: MainAxisSize.min, children: [
+                  ListTile(
+                    leading: Icon(pinnedChats.contains(c.name) ? Icons.push_pin_outlined : Icons.push_pin),
+                    title: Text(pinnedChats.contains(c.name) ? 'Открепить' : 'Закрепить'),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      if (!pinnedChats.add(c.name)) pinnedChats.remove(c.name);
+                      final top = chatItems.where((x) => pinnedChats.contains(x.name)).toList();
+                      final rest = chatItems.where((x) => !pinnedChats.contains(x.name)).toList();
+                      chatItems
+                        ..clear()
+                        ..addAll(top)
+                        ..addAll(rest);
+                      chatsRevision.value++;
+                    },
+                  ),
+                ]),
+              ),
+            ),
           ),
         if (chatItems.where((c) => (orbitFilter.value == null || orbits.any((o) => o.name == orbitFilter.value && o.items.contains(c.name))) && (chatQuery.value.trim().isEmpty || c.name.toLowerCase().contains(chatQuery.value.trim().toLowerCase()) || c.last.toLowerCase().contains(chatQuery.value.trim().toLowerCase()))).isEmpty)
           const Padding(padding: EdgeInsets.all(32), child: Center(child: Text('Ничего не найдено'))),
@@ -361,6 +386,18 @@ class _ConversationPageState extends State<ConversationPage> {
           ]),
         ]),
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Видеозвонок',
+            icon: const Icon(Icons.videocam_outlined),
+            onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => CallPage(item: item, video: true))),
+          ),
+          IconButton(
+            tooltip: 'Позвонить',
+            icon: const Icon(Icons.call_outlined),
+            onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => CallPage(item: item, video: false))),
+          ),
+        ],
       ),
       body: Column(children: [
         if (item.name == 'Руслан')
@@ -1220,6 +1257,95 @@ class _NewOrbitPageState extends State<NewOrbitPage> {
         const SizedBox(height: 12),
         FilledButton(onPressed: valid ? create : null, child: const Padding(padding: EdgeInsets.all(14), child: Text('Создать орбиту'))),
       ]),
+    );
+  }
+}
+
+// ---------- Звонок (макет: без реальной связи) ----------
+
+class CallPage extends StatefulWidget {
+  final ChatItem item;
+  final bool video;
+  const CallPage({super.key, required this.item, required this.video});
+  @override
+  State<CallPage> createState() => _CallPageState();
+}
+
+class _CallPageState extends State<CallPage> {
+  bool muted = false;
+  bool speaker = false;
+  late bool camera = widget.video;
+  bool answered = false;
+  int seconds = 0;
+  Timer? ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    // Макет: «собеседник отвечает» через 3 секунды.
+    Future<void>.delayed(const Duration(seconds: 3), () {
+      if (!mounted) return;
+      setState(() => answered = true);
+      ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (mounted) setState(() => seconds++);
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    ticker?.cancel();
+    super.dispose();
+  }
+
+  String get status {
+    if (!answered) return widget.video ? 'Видеозвонок · вызов…' : 'Вызов…';
+    final m = (seconds ~/ 60).toString().padLeft(2, '0');
+    final s = (seconds % 60).toString().padLeft(2, '0');
+    return '$m:$s';
+  }
+
+  Widget round(IconData icon, String label, bool on, VoidCallback tap, {Color? bg}) => Column(mainAxisSize: MainAxisSize.min, children: [
+        InkResponse(
+          onTap: tap,
+          child: CircleAvatar(
+            radius: 30,
+            backgroundColor: bg ?? (on ? Colors.white : Colors.white24),
+            child: Icon(icon, color: bg != null ? Colors.white : (on ? Colors.black87 : Colors.white), size: 28),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 12)),
+      ]);
+
+  @override
+  Widget build(BuildContext context) {
+    final item = widget.item;
+    return Scaffold(
+      backgroundColor: const Color(0xFF0C1445),
+      body: Container(
+        decoration: const BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [Color(0xFF040716), Color(0xFF0C1445)])),
+        child: SafeArea(
+          child: Column(children: [
+            const SizedBox(height: 56),
+            Avatar(item.initials, item.color, size: 120),
+            const SizedBox(height: 20),
+            Text(item.name, style: const TextStyle(color: Colors.white, fontSize: 26, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 6),
+            Text(status, style: const TextStyle(color: Colors.white70, fontSize: 16)),
+            if (widget.video && answered && !camera) const Padding(padding: EdgeInsets.only(top: 8), child: Text('Ваша камера выключена', style: TextStyle(color: Colors.white54))),
+            const Spacer(),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+              round(muted ? Icons.mic_off : Icons.mic, 'Микрофон', muted, () => setState(() => muted = !muted)),
+              if (widget.video) round(camera ? Icons.videocam : Icons.videocam_off, 'Камера', !camera, () => setState(() => camera = !camera)),
+              round(speaker ? Icons.volume_up : Icons.volume_down, 'Динамик', speaker, () => setState(() => speaker = !speaker)),
+            ]),
+            const SizedBox(height: 32),
+            round(Icons.call_end, 'Завершить', false, () => Navigator.pop(context), bg: const Color(0xFFD32F2F)),
+            const SizedBox(height: 40),
+          ]),
+        ),
+      ),
     );
   }
 }
