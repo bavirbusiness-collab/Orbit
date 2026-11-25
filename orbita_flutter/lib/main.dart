@@ -37,7 +37,7 @@ class _ShellState extends State<Shell> {
 
   @override
   Widget build(BuildContext context) {
-    const pages = [ChatsPage(), RealsPage(), OrbitsPage(), ProfilePage()];
+    const pages = [ChatsPage(), StatusPage(), OrbitsPage(), ProfilePage()];
     return Scaffold(
       body: IndexedStack(index: tab, children: pages),
       bottomNavigationBar: NavigationBar(
@@ -45,7 +45,7 @@ class _ShellState extends State<Shell> {
         onDestinationSelected: (i) => setState(() => tab = i),
         destinations: const [
           NavigationDestination(icon: Icon(Icons.chat_bubble_outline), selectedIcon: Icon(Icons.chat_bubble), label: 'Чаты'),
-          NavigationDestination(icon: Icon(Icons.play_circle_outline), selectedIcon: Icon(Icons.play_circle), label: 'Reals'),
+          NavigationDestination(icon: Icon(Icons.data_usage), label: 'Статусы'),
           NavigationDestination(icon: Icon(Icons.public), label: 'Орбиты'),
           NavigationDestination(icon: Icon(Icons.person_outline), selectedIcon: Icon(Icons.person), label: 'Профиль'),
         ],
@@ -303,69 +303,164 @@ class _NewChatPageState extends State<NewChatPage> {
   }
 }
 
-// ---------- Reals ----------
+// ---------- Статусы ----------
 
-class RealsPage extends StatelessWidget {
-  const RealsPage({super.key});
+class StatusItem {
+  final String name, initials, time;
+  final Color color;
+  final List<String> texts;
+  final bool viewed;
+  const StatusItem(this.name, this.initials, this.color, this.texts, this.time, {this.viewed = false});
+}
+
+const statuses = [
+  StatusItem('Лейла', 'Л', teal, ['Утро на озере', 'Клёв начался'], 'сегодня, 08:15'),
+  StatusItem('Рустам', 'Р', Color(0xFF7C3AED), ['Сдал экзамен'], 'сегодня, 07:40'),
+  StatusItem('Нигяр', 'Н', rust, ['Шеки, день первый', 'Халва в Шеки лучшая'], 'вчера, 19:20', viewed: true),
+];
+
+class StatusPage extends StatelessWidget {
+  const StatusPage({super.key});
+
+  Widget ring(StatusItem st) {
+    final c = st.viewed ? Colors.grey : seed;
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: c, width: 2.5)),
+      child: Avatar(st.initials, st.color, size: 48),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
-    const clips = [
-      ('@leyla', 'Рассвет на озере: лёгкая снасть #рыбалка', 'Рыбалка', [Color(0xFF1B2A6B), teal]),
-      ('@rustam', 'Как за вечер выучить 30 слов #учёба', 'Учёба', [Color(0xFF3B1B6B), seed]),
-      ('@nigar', 'Шеки за один день #поездка', 'Шеки', [Color(0xFF6B2A1B), rust]),
-    ];
-    return PageView(
-      scrollDirection: Axis.vertical,
-      children: [
-        for (final c in clips)
-          Container(
-            decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: c.$4)),
-            child: SafeArea(
-              child: Stack(children: [
-                const Align(
-                  alignment: Alignment.topCenter,
-                  child: Padding(
-                    padding: EdgeInsets.only(top: 12),
-                    child: Row(mainAxisSize: MainAxisSize.min, children: [
-                      Text('Подписки', style: TextStyle(color: Colors.white60, fontWeight: FontWeight.w600)),
-                      SizedBox(width: 24),
-                      Text('Для вас', style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700, decoration: TextDecoration.underline, decorationColor: Colors.white)),
-                    ]),
-                  ),
-                ),
-                const Positioned(
-                  right: 12,
-                  bottom: 24,
-                  child: Column(mainAxisSize: MainAxisSize.min, children: [
-                    Icon(Icons.favorite_border, color: Colors.white, size: 32),
-                    Text('12,4 тыс.', style: TextStyle(color: Colors.white, fontSize: 12)),
-                    SizedBox(height: 18),
-                    Icon(Icons.chat_bubble_outline, color: Colors.white, size: 30),
-                    Text('318', style: TextStyle(color: Colors.white, fontSize: 12)),
-                    SizedBox(height: 18),
-                    Icon(Icons.send_outlined, color: Colors.white, size: 30),
-                    Text('В чат', style: TextStyle(color: Colors.white, fontSize: 12)),
-                    SizedBox(height: 18),
-                    Icon(Icons.bookmark_border, color: Colors.white, size: 30),
-                  ]),
-                ),
-                Positioned(
-                  left: 16,
-                  right: 80,
-                  bottom: 24,
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-                    Text(c.$1, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 6),
-                    Text(c.$2, style: const TextStyle(color: Colors.white)),
-                    const SizedBox(height: 8),
-                    Chip(label: Text('Орбита: ${c.$3}'), backgroundColor: Colors.white24, labelStyle: const TextStyle(color: Colors.white), side: BorderSide.none),
-                  ]),
-                ),
+    final cs = Theme.of(context).colorScheme;
+    final recent = [for (final st in statuses) if (!st.viewed) st];
+    final seen = [for (final st in statuses) if (st.viewed) st];
+    void open(StatusItem st) => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => StatusViewer(item: st)));
+    return Scaffold(
+      appBar: AppBar(title: const Text('Статусы', style: TextStyle(fontWeight: FontWeight.bold))),
+      body: ListView(children: [
+        ListTile(
+          leading: Stack(children: [
+            const Avatar('ВЫ', seed, size: 56),
+            Positioned(right: 0, bottom: 0, child: CircleAvatar(radius: 10, backgroundColor: teal, child: const Icon(Icons.add, size: 14, color: Colors.white))),
+          ]),
+          title: const Text('Мой статус', style: TextStyle(fontWeight: FontWeight.w600)),
+          subtitle: const Text('Нажмите, чтобы добавить'),
+          onTap: () => showModalBottomSheet<void>(
+            context: context,
+            builder: (ctx) => SafeArea(
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                ListTile(leading: const Icon(Icons.text_fields), title: const Text('Текст'), onTap: () => Navigator.pop(ctx)),
+                ListTile(leading: const Icon(Icons.photo_outlined), title: const Text('Фото'), onTap: () => Navigator.pop(ctx)),
+                ListTile(leading: const Icon(Icons.videocam_outlined), title: const Text('Видео'), onTap: () => Navigator.pop(ctx)),
               ]),
             ),
           ),
-      ],
+        ),
+        const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text('Недавние', style: TextStyle(fontWeight: FontWeight.w600))),
+        for (final st in recent) ListTile(leading: ring(st), title: Text(st.name, style: const TextStyle(fontWeight: FontWeight.w600)), subtitle: Text(st.time), onTap: () => open(st)),
+        if (seen.isNotEmpty) const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text('Просмотренные', style: TextStyle(fontWeight: FontWeight.w600))),
+        for (final st in seen) ListTile(leading: ring(st), title: Text(st.name, style: const TextStyle(fontWeight: FontWeight.w600)), subtitle: Text(st.time), onTap: () => open(st)),
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: Text('Статусы исчезают через 24 часа.', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
+        ),
+      ]),
+    );
+  }
+}
+
+class StatusViewer extends StatefulWidget {
+  final StatusItem item;
+  const StatusViewer({super.key, required this.item});
+  @override
+  State<StatusViewer> createState() => _StatusViewerState();
+}
+
+class _StatusViewerState extends State<StatusViewer> with SingleTickerProviderStateMixin {
+  late final AnimationController ctl = AnimationController(vsync: this, duration: const Duration(seconds: 5));
+  int index = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    ctl.addStatusListener((st) {
+      if (st == AnimationStatus.completed) next();
+    });
+    ctl.forward();
+  }
+
+  @override
+  void dispose() {
+    ctl.dispose();
+    super.dispose();
+  }
+
+  void next() {
+    if (index < widget.item.texts.length - 1) {
+      setState(() => index++);
+      ctl.forward(from: 0);
+    } else if (mounted) {
+      Navigator.pop(context);
+    }
+  }
+
+  void prev() {
+    if (index > 0) setState(() => index--);
+    ctl.forward(from: 0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final it = widget.item;
+    return Scaffold(
+      backgroundColor: Colors.black,
+      body: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapUp: (d) => d.localPosition.dx < MediaQuery.of(context).size.width / 3 ? prev() : next(),
+        child: Container(
+          decoration: BoxDecoration(gradient: LinearGradient(begin: Alignment.topCenter, end: Alignment.bottomCenter, colors: [const Color(0xFF1B2A6B), it.color])),
+          child: SafeArea(
+            child: Column(children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                child: Row(children: [
+                  for (var i = 0; i < it.texts.length; i++)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        child: AnimatedBuilder(
+                          animation: ctl,
+                          builder: (context, _) => LinearProgressIndicator(
+                            value: i < index ? 1 : (i == index ? ctl.value : 0),
+                            minHeight: 3,
+                            backgroundColor: Colors.white30,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    ),
+                ]),
+              ),
+              ListTile(
+                leading: Avatar(it.initials, it.color, size: 40),
+                title: Text(it.name, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600)),
+                subtitle: Text(it.time, style: const TextStyle(color: Colors.white70)),
+                trailing: IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close, color: Colors.white)),
+              ),
+              Expanded(
+                child: Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Text(it.texts[index], textAlign: TextAlign.center, style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ),
+            ]),
+          ),
+        ),
+      ),
     );
   }
 }

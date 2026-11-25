@@ -344,7 +344,7 @@ class AboutPage extends StatelessWidget {
       title: 'Всё общение\nна одной орбите',
       children: [
         InfoCard(icon: Icons.chat_bubble_outline, title: 'Чаты и группы', text: 'Личные переписки, группы и временные комнаты для поездок и событий.'),
-        InfoCard(icon: Icons.play_circle_outline, title: 'Reals', text: 'Короткие вертикальные видео и ответ видео прямо из чата.'),
+        InfoCard(icon: Icons.data_usage, title: 'Статусы', text: 'Делись моментами дня: текст, фото и видео. Статус исчезает через 24 часа.'),
         InfoCard(icon: Icons.blur_circular, title: 'Орбиты', text: 'Чаты, каналы и видео по одной теме собраны в одном месте.'),
         InfoCard(icon: Icons.notifications_paused_outlined, title: 'Режим «Тишина»', text: 'Никаких бесконечных уведомлений: вы получаете дайджест того, что пропустили.'),
       ],
