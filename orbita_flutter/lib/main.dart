@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'onboarding.dart';
 import 'register.dart';
@@ -76,7 +77,9 @@ class ChatItem {
   final bool group;
   final List<String> members;
   final int? ttlDays;
-  const ChatItem(this.name, this.last, this.time, this.initials, this.color, [this.unread = 0, this.group = false, this.members = const [], this.ttlDays]);
+  final bool channel;
+  final bool mine;
+  const ChatItem(this.name, this.last, this.time, this.initials, this.color, [this.unread = 0, this.group = false, this.members = const [], this.ttlDays, this.channel = false, this.mine = false]);
 }
 
 final chatsRevision = ValueNotifier<int>(0);
@@ -85,6 +88,7 @@ final chatItems = <ChatItem>[
   ChatItem('Руслан', 'Завтра на озеро в семь?', '11:42', 'Р', seed, 2),
   ChatItem('Группа 11-Б', 'Лейла: конспект уже в канале', '10:15', 'Г', teal, 0, true, ['Лейла', 'Рустам', 'Нигяр']),
   ChatItem('Поездка в Шеки', 'Комната закроется через 6 дней', 'вчера', 'Ш', rust, 0, true, ['Нигяр', 'Эльчин'], 7),
+  ChatItem('Клёв на Мингечевире', 'Свежий отчёт: утром берёт на мормышку', '09:05', 'К', Color(0xFF1B6FB3), 0, false, [], null, true),
   ChatItem('Мама', 'Видео-ответ · 0:14', 'вчера', 'М', Color(0xFF5A6280)),
 ];
 
@@ -125,7 +129,7 @@ class ChatsPage extends StatelessWidget {
               Text(c.time, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
               if (c.unread > 0) Badge(label: Text('${c.unread}')),
             ]),
-            onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => ConversationPage(item: c))),
+            onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => c.channel ? ChannelPage(item: c) : ConversationPage(item: c))),
           ),
         Container(
           margin: const EdgeInsets.all(16),
@@ -300,6 +304,7 @@ class _NewChatPageState extends State<NewChatPage> {
           child: SearchBar(hintText: 'Имя или номер телефона', leading: const Icon(Icons.search), elevation: const WidgetStatePropertyAll(0), onChanged: (v) => setState(() => q = v)),
         ),
         ListTile(leading: const CircleAvatar(child: Icon(Icons.group_add_outlined)), title: const Text('Создать группу'), onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const NewGroupPage()))),
+        ListTile(leading: const CircleAvatar(child: Icon(Icons.campaign_outlined)), title: const Text('Создать канал'), onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const NewChannelPage()))),
         ListTile(leading: const CircleAvatar(child: Icon(Icons.public)), title: const Text('Создать орбиту'), onTap: () {}),
         const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text('Друзья в Orbit', style: TextStyle(fontWeight: FontWeight.w600))),
         for (final p in list)
@@ -441,6 +446,222 @@ class GroupInfoPage extends StatelessWidget {
           ),
         ListTile(leading: const CircleAvatar(child: Icon(Icons.person_add_alt_1)), title: const Text('Добавить участника'), onTap: () {}),
         ListTile(leading: Icon(Icons.exit_to_app, color: cs.error), title: Text('Выйти из группы', style: TextStyle(color: cs.error)), onTap: () {}),
+      ]),
+    );
+  }
+}
+
+// ---------- Каналы ----------
+
+class ChannelInfo {
+  final String description;
+  final String link; // пусто у приватного канала
+  final bool isPublic;
+  int subscribers;
+  ChannelInfo(this.description, this.link, this.isPublic, this.subscribers);
+}
+
+class Post {
+  final String text, time;
+  int views;
+  Post(this.text, this.time, this.views);
+}
+
+final channelInfo = <String, ChannelInfo>{
+  'Клёв на Мингечевире': ChannelInfo('Отчёты с воды, снасти и погода для рыбаков.', 'mingechevir_fish', true, 1240),
+};
+
+final channelPosts = <String, List<Post>>{
+  'Клёв на Мингечевире': [
+    Post('Свежий отчёт: утром берёт на мормышку, лучше у левого берега.', '09:05', 812),
+    Post('Завтра ветер до 7 м/с, лодку лучше не брать.', 'вчера', 1104),
+  ],
+};
+
+class NewChannelPage extends StatefulWidget {
+  const NewChannelPage({super.key});
+  @override
+  State<NewChannelPage> createState() => _NewChannelPageState();
+}
+
+class _NewChannelPageState extends State<NewChannelPage> {
+  final name = TextEditingController();
+  final about = TextEditingController();
+  final link = TextEditingController();
+  bool isPublic = true;
+
+  @override
+  void dispose() {
+    name.dispose();
+    about.dispose();
+    link.dispose();
+    super.dispose();
+  }
+
+  bool get linkOk => !isPublic || RegExp(r'^[A-Za-z][A-Za-z0-9_]{2,31}$').hasMatch(link.text.trim());
+  bool get valid => name.text.trim().isNotEmpty && linkOk;
+
+  void create() {
+    final title = name.text.trim();
+    channelInfo[title] = ChannelInfo(about.text.trim(), isPublic ? link.text.trim() : 'join_${title.hashCode.abs()}', isPublic, 0);
+    channelPosts[title] = [];
+    final item = ChatItem(title, 'Канал создан', 'сейчас', title.substring(0, 1).toUpperCase(), const Color(0xFF1B6FB3), 0, false, const [], null, true, true);
+    chatItems.insert(0, item);
+    chatsRevision.value++;
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    Navigator.push(context, MaterialPageRoute<void>(builder: (_) => ChannelPage(item: item)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Новый канал')),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        TextField(controller: name, maxLength: 80, onChanged: (_) => setState(() {}), decoration: const InputDecoration(labelText: 'Название канала', border: OutlineInputBorder())),
+        const SizedBox(height: 4),
+        TextField(controller: about, maxLength: 200, maxLines: 3, decoration: const InputDecoration(labelText: 'Описание', border: OutlineInputBorder())),
+        const SizedBox(height: 8),
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: true, label: Text('Публичный'), icon: Icon(Icons.public)),
+            ButtonSegment(value: false, label: Text('Приватный'), icon: Icon(Icons.lock_outline)),
+          ],
+          selected: {isPublic},
+          onSelectionChanged: (v) => setState(() => isPublic = v.first),
+        ),
+        const SizedBox(height: 12),
+        if (isPublic) ...[
+          TextField(
+            controller: link,
+            onChanged: (_) => setState(() {}),
+            decoration: const InputDecoration(labelText: 'Ссылка канала', prefixText: 'orbit.app/c/', border: OutlineInputBorder(), helperText: 'Латиница, цифры и _, от 3 символов'),
+          ),
+          const SizedBox(height: 4),
+          Text('Публичный канал можно найти через поиск.', style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
+        ] else
+          Text('Приватный канал не виден в поиске. Попасть в него можно только по ссылке-приглашению, она создастся автоматически.', style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
+        const SizedBox(height: 20),
+        FilledButton(onPressed: valid ? create : null, child: const Padding(padding: EdgeInsets.all(14), child: Text('Создать канал'))),
+      ]),
+    );
+  }
+}
+
+class ChannelPage extends StatefulWidget {
+  final ChatItem item;
+  const ChannelPage({super.key, required this.item});
+  @override
+  State<ChannelPage> createState() => _ChannelPageState();
+}
+
+class _ChannelPageState extends State<ChannelPage> {
+  final draft = TextEditingController();
+  bool subscribed = false;
+
+  @override
+  void dispose() {
+    draft.dispose();
+    super.dispose();
+  }
+
+  String _now() {
+    final d = DateTime.now();
+    return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+
+  void publish() {
+    final t = draft.text.trim();
+    if (t.isEmpty) return;
+    setState(() => channelPosts.putIfAbsent(widget.item.name, () => []).insert(0, Post(t, _now(), 0)));
+    draft.clear();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final item = widget.item;
+    final info = channelInfo[item.name] ?? ChannelInfo('', '', true, 0);
+    final posts = channelPosts[item.name] ?? [];
+    final subs = info.subscribers + (subscribed ? 1 : 0);
+    final linkText = info.isPublic ? 'orbit.app/c/${info.link}' : 'orbit.app/join/${info.link}';
+    return Scaffold(
+      appBar: AppBar(
+        title: Row(children: [
+          Avatar(item.initials, item.color, size: 38),
+          const SizedBox(width: 10),
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(item.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+            Text('$subs подписчиков', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+          ]),
+        ]),
+      ),
+      body: Column(children: [
+        Expanded(
+          child: ListView(padding: const EdgeInsets.all(12), children: [
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                if (info.description.isNotEmpty) Text(info.description),
+                if (info.description.isNotEmpty) const SizedBox(height: 8),
+                Row(children: [
+                  Icon(info.isPublic ? Icons.public : Icons.lock_outline, size: 18, color: cs.primary),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(linkText, style: TextStyle(color: cs.primary))),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    icon: const Icon(Icons.copy, size: 18),
+                    onPressed: () {
+                      Clipboard.setData(ClipboardData(text: linkText));
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Ссылка скопирована')));
+                    },
+                  ),
+                ]),
+              ]),
+            ),
+            const SizedBox(height: 8),
+            if (posts.isEmpty)
+              Padding(padding: const EdgeInsets.all(32), child: Center(child: Text(item.mine ? 'Публикаций пока нет. Напишите первую.' : 'Публикаций пока нет.', style: TextStyle(color: cs.onSurfaceVariant)))),
+            for (final p in posts)
+              Card(
+                elevation: 0,
+                color: cs.surfaceContainerLow,
+                margin: const EdgeInsets.symmetric(vertical: 4),
+                child: Padding(
+                  padding: const EdgeInsets.all(14),
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    Text(p.text, style: const TextStyle(fontSize: 15, height: 1.4)),
+                    const SizedBox(height: 8),
+                    Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                      Icon(Icons.visibility_outlined, size: 15, color: cs.onSurfaceVariant),
+                      const SizedBox(width: 4),
+                      Text('${p.views}', style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+                      const SizedBox(width: 12),
+                      Text(p.time, style: TextStyle(fontSize: 12, color: cs.onSurfaceVariant)),
+                    ]),
+                  ]),
+                ),
+              ),
+          ]),
+        ),
+        SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+            child: item.mine
+                ? Row(children: [
+                    Expanded(child: TextField(controller: draft, minLines: 1, maxLines: 4, decoration: const InputDecoration(hintText: 'Новая публикация', border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24)))))),
+                    const SizedBox(width: 6),
+                    IconButton.filled(onPressed: publish, icon: const Icon(Icons.send)),
+                  ])
+                : SizedBox(
+                    width: double.infinity,
+                    child: subscribed
+                        ? OutlinedButton(onPressed: () => setState(() => subscribed = false), child: const Padding(padding: EdgeInsets.all(12), child: Text('Вы подписаны · Отписаться')))
+                        : FilledButton(onPressed: () => setState(() => subscribed = true), child: const Padding(padding: EdgeInsets.all(12), child: Text('Подписаться'))),
+                  ),
+          ),
+        ),
       ]),
     );
   }
