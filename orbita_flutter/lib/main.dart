@@ -92,7 +92,7 @@ class ChatsPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Чаты', style: TextStyle(fontWeight: FontWeight.bold)),
-        actions: [IconButton(onPressed: () {}, icon: const Icon(Icons.add_circle_outline))],
+        actions: [IconButton(onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const NewChatPage())), icon: const Icon(Icons.add_circle_outline))],
       ),
       body: ListView(children: [
         Padding(
@@ -134,23 +134,75 @@ class ChatsPage extends StatelessWidget {
   }
 }
 
-class ConversationPage extends StatelessWidget {
+class ConversationPage extends StatefulWidget {
   final ChatItem item;
   const ConversationPage({super.key, required this.item});
+  @override
+  State<ConversationPage> createState() => _ConversationPageState();
+}
 
-  Widget bubble(BuildContext context, String text, bool mine, {String? sub}) {
+class _Bubble {
+  final String text;
+  final bool mine;
+  final String time;
+  final String? sub;
+  _Bubble(this.text, this.mine, this.time, {this.sub});
+}
+
+class _ConversationPageState extends State<ConversationPage> {
+  final draft = TextEditingController();
+  final scroll = ScrollController();
+  late final List<_Bubble> items;
+
+  @override
+  void initState() {
+    super.initState();
+    // Старые сообщения показываем только в чате с Русланом, остальные чаты пустые.
+    items = widget.item.name == 'Руслан'
+        ? [
+            _Bubble('Завтра на озеро в семь?', false, '11:40'),
+            _Bubble('Давай в 6:40, пока клёв. Возьму термос.', true, '11:42'),
+            _Bubble('Голос · 0:21\n«…возьми удочку побольше, там глубоко…»', false, '11:44', sub: 'Расшифровка на устройстве'),
+          ]
+        : [];
+  }
+
+  @override
+  void dispose() {
+    draft.dispose();
+    scroll.dispose();
+    super.dispose();
+  }
+
+  String _now() {
+    final d = DateTime.now();
+    return '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+  }
+
+  void send() {
+    final t = draft.text.trim();
+    if (t.isEmpty) return;
+    setState(() => items.add(_Bubble(t, true, _now())));
+    draft.clear();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (scroll.hasClients) scroll.animateTo(scroll.position.maxScrollExtent, duration: const Duration(milliseconds: 200), curve: Curves.easeOut);
+    });
+  }
+
+  Widget bubble(BuildContext context, _Bubble b) {
     final cs = Theme.of(context).colorScheme;
-    final fg = mine ? cs.onPrimary : cs.onSurfaceVariant;
+    final fg = b.mine ? cs.onPrimary : cs.onSurfaceVariant;
     return Align(
-      alignment: mine ? Alignment.centerRight : Alignment.centerLeft,
+      alignment: b.mine ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         constraints: const BoxConstraints(maxWidth: 280),
-        decoration: BoxDecoration(color: mine ? cs.primary : cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(16)),
+        decoration: BoxDecoration(color: b.mine ? cs.primary : cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(16)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
-          Text(text, style: TextStyle(color: fg)),
-          if (sub != null) Text(sub, style: TextStyle(color: cs.primary, fontSize: 12, fontWeight: FontWeight.w600)),
+          Text(b.text, style: TextStyle(color: fg)),
+          if (b.sub != null) Text(b.sub!, style: TextStyle(color: cs.primary, fontSize: 12, fontWeight: FontWeight.w600)),
+          Text(b.time, style: TextStyle(color: fg.withValues(alpha: 0.7), fontSize: 11)),
         ]),
       ),
     );
@@ -159,6 +211,8 @@ class ConversationPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final item = widget.item;
+    final hasText = draft.text.trim().isNotEmpty;
     return Scaffold(
       appBar: AppBar(
         title: Row(children: [
@@ -166,35 +220,84 @@ class ConversationPage extends StatelessWidget {
           const SizedBox(width: 10),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(item.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            const Text('печатает…', style: TextStyle(fontSize: 12, color: teal)),
+            const Text('в сети', style: TextStyle(fontSize: 12, color: teal)),
           ]),
         ]),
       ),
       body: Column(children: [
-        Container(
-          width: double.infinity,
-          color: cs.surfaceContainerHighest,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-          child: const Text('Закреплено: Сбор у моста в 6:40', style: TextStyle(fontSize: 13)),
-        ),
+        if (item.name == 'Руслан')
+          Container(
+            width: double.infinity,
+            color: cs.surfaceContainerHighest,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: const Text('Закреплено: Сбор у моста в 6:40', style: TextStyle(fontSize: 13)),
+          ),
         Expanded(
-          child: ListView(padding: const EdgeInsets.all(14), children: [
-            bubble(context, 'Завтра на озеро в семь?', false),
-            bubble(context, 'Давай в 6:40, пока клёв. Возьму термос.', true),
-            bubble(context, 'Голос · 0:21\n«…возьми удочку побольше, там глубоко…»', false, sub: 'Расшифровка на устройстве'),
-          ]),
+          child: items.isEmpty
+              ? Center(child: Text('Сообщений пока нет. Напишите первым.', style: TextStyle(color: cs.onSurfaceVariant)))
+              : ListView(controller: scroll, padding: const EdgeInsets.all(14), children: [for (final b in items) bubble(context, b)]),
         ),
         SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
             child: Row(children: [
               IconButton(onPressed: () {}, icon: const Icon(Icons.attach_file)),
-              const Expanded(child: TextField(decoration: InputDecoration(hintText: 'Сообщение', border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24)))))),
+              Expanded(
+                child: TextField(
+                  controller: draft,
+                  minLines: 1,
+                  maxLines: 4,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(hintText: 'Сообщение', border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(24)))),
+                ),
+              ),
               const SizedBox(width: 6),
-              IconButton.filled(onPressed: () {}, icon: const Icon(Icons.videocam_outlined)),
+              IconButton.filled(onPressed: hasText ? send : () {}, icon: Icon(hasText ? Icons.send : Icons.videocam_outlined)),
             ]),
           ),
         ),
+      ]),
+    );
+  }
+}
+
+// ---------- Новый чат ----------
+
+class NewChatPage extends StatefulWidget {
+  const NewChatPage({super.key});
+  @override
+  State<NewChatPage> createState() => _NewChatPageState();
+}
+
+class _NewChatPageState extends State<NewChatPage> {
+  static const people = [
+    ChatItem('Лейла', '', '', 'Л', teal),
+    ChatItem('Рустам', '', '', 'Р', Color(0xFF7C3AED)),
+    ChatItem('Нигяр', '', '', 'Н', rust),
+    ChatItem('Эльчин', '', '', 'Э', Color(0xFF5A6280)),
+  ];
+  String q = '';
+
+  @override
+  Widget build(BuildContext context) {
+    final list = [for (final p in people) if (p.name.toLowerCase().contains(q.trim().toLowerCase())) p];
+    return Scaffold(
+      appBar: AppBar(title: const Text('Новый чат')),
+      body: ListView(children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: SearchBar(hintText: 'Имя или номер телефона', leading: const Icon(Icons.search), elevation: const WidgetStatePropertyAll(0), onChanged: (v) => setState(() => q = v)),
+        ),
+        ListTile(leading: const CircleAvatar(child: Icon(Icons.group_add_outlined)), title: const Text('Создать группу'), onTap: () {}),
+        ListTile(leading: const CircleAvatar(child: Icon(Icons.public)), title: const Text('Создать орбиту'), onTap: () {}),
+        const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text('Друзья в Orbit', style: TextStyle(fontWeight: FontWeight.w600))),
+        for (final p in list)
+          ListTile(
+            leading: Avatar(p.initials, p.color),
+            title: Text(p.name),
+            onTap: () => Navigator.pushReplacement(context, MaterialPageRoute<void>(builder: (_) => ConversationPage(item: p))),
+          ),
+        if (list.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('Никого не нашли')),
       ]),
     );
   }
