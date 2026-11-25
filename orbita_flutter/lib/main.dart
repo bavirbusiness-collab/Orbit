@@ -101,6 +101,7 @@ final orbits = <Orbit>[
   Orbit('Учёба', teal, ['Группа 11-Б']),
   Orbit('Семья', rust, ['Мама']),
 ];
+final chatQuery = ValueNotifier<String>('');
 final orbitFilter = ValueNotifier<String?>(null); // выбранная орбита в списке чатов
 final orbitsRevision = ValueNotifier<int>(0);
 
@@ -114,6 +115,7 @@ final chatItems = <ChatItem>[
 
 class ChatsPage extends StatelessWidget {
   const ChatsPage({super.key});
+  static final searchCtl = TextEditingController();
 
   @override
   Widget build(BuildContext context) =>
@@ -129,7 +131,27 @@ class ChatsPage extends StatelessWidget {
       body: ListView(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-          child: SearchBar(hintText: 'Поиск людей, чатов, видео', leading: const Icon(Icons.search), elevation: const WidgetStatePropertyAll(0)),
+          child: SearchBar(
+            hintText: 'Поиск людей, чатов, видео',
+            leading: const Icon(Icons.search),
+            elevation: const WidgetStatePropertyAll(0),
+            controller: searchCtl,
+            trailing: [
+              if (chatQuery.value.isNotEmpty)
+                IconButton(
+                  icon: const Icon(Icons.close),
+                  onPressed: () {
+                    searchCtl.clear();
+                    chatQuery.value = '';
+                    chatsRevision.value++;
+                  },
+                ),
+            ],
+            onChanged: (v) {
+              chatQuery.value = v;
+              chatsRevision.value++;
+            },
+          ),
         ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -153,7 +175,11 @@ class ChatsPage extends StatelessWidget {
               ),
           ]),
         ),
-        for (final c in chatItems.where((c) => orbitFilter.value == null || orbits.any((o) => o.name == orbitFilter.value && o.items.contains(c.name))))
+        for (final c in chatItems.where((c) =>
+            (orbitFilter.value == null || orbits.any((o) => o.name == orbitFilter.value && o.items.contains(c.name))) &&
+            (chatQuery.value.trim().isEmpty ||
+                c.name.toLowerCase().contains(chatQuery.value.trim().toLowerCase()) ||
+                c.last.toLowerCase().contains(chatQuery.value.trim().toLowerCase()))))
           ListTile(
             leading: Avatar(c.initials, c.color),
             title: Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600)),
@@ -164,6 +190,8 @@ class ChatsPage extends StatelessWidget {
             ]),
             onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => c.channel ? ChannelPage(item: c) : ConversationPage(item: c))),
           ),
+        if (chatItems.where((c) => (orbitFilter.value == null || orbits.any((o) => o.name == orbitFilter.value && o.items.contains(c.name))) && (chatQuery.value.trim().isEmpty || c.name.toLowerCase().contains(chatQuery.value.trim().toLowerCase()) || c.last.toLowerCase().contains(chatQuery.value.trim().toLowerCase()))).isEmpty)
+          const Padding(padding: EdgeInsets.all(32), child: Center(child: Text('Ничего не найдено'))),
         Container(
           margin: const EdgeInsets.all(16),
           padding: const EdgeInsets.all(14),
