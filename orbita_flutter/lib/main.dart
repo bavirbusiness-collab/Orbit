@@ -8,6 +8,8 @@ import 'register.dart';
 
 void main() => runApp(const OrbitaMock());
 
+final themeMode = ValueNotifier<ThemeMode>(ThemeMode.system);
+
 const seed = Color(0xFF3B4CCA);
 const teal = Color(0xFF0F8F7E);
 const rust = Color(0xFFC2410C);
@@ -17,13 +19,16 @@ class OrbitaMock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeMode,
+      builder: (context, mode, _) => MaterialApp(
+      themeMode: mode,
       title: 'Orbit',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: seed, useMaterial3: true),
       darkTheme: ThemeData(colorSchemeSeed: seed, brightness: Brightness.dark, useMaterial3: true),
       home: const Gate(),
-    );
+    ));
   }
 }
 
@@ -667,6 +672,112 @@ class _ChannelPageState extends State<ChannelPage> {
   }
 }
 
+// ---------- Настройки ----------
+
+class SettingsPage extends StatefulWidget {
+  const SettingsPage({super.key});
+  @override
+  State<SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<SettingsPage> {
+  // Макет: кроме темы, значения нигде не сохраняются.
+  bool notify = true;
+  bool sound = true;
+  bool quiet = false;
+  bool hideSubs = false;
+  String lang = 'ru';
+  String numberVisible = 'contacts';
+
+  Widget section(String t) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 20, 16, 4),
+        child: Text(t, style: TextStyle(fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.primary)),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Настройки')),
+      body: ListView(children: [
+        section('Оформление'),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: ValueListenableBuilder<ThemeMode>(
+            valueListenable: themeMode,
+            builder: (context, mode, _) => SegmentedButton<ThemeMode>(
+              segments: const [
+                ButtonSegment(value: ThemeMode.system, label: Text('Системная')),
+                ButtonSegment(value: ThemeMode.light, label: Text('Светлая')),
+                ButtonSegment(value: ThemeMode.dark, label: Text('Тёмная')),
+              ],
+              selected: {mode},
+              onSelectionChanged: (v) => themeMode.value = v.first,
+            ),
+          ),
+        ),
+        ListTile(
+          title: const Text('Язык'),
+          trailing: DropdownButton<String>(
+            value: lang,
+            underline: const SizedBox.shrink(),
+            items: const [DropdownMenuItem(value: 'ru', child: Text('Русский')), DropdownMenuItem(value: 'az', child: Text('Azərbaycanca'))],
+            onChanged: (v) => setState(() => lang = v ?? lang),
+          ),
+        ),
+        section('Уведомления'),
+        SwitchListTile(title: const Text('Уведомления о сообщениях'), value: notify, onChanged: (v) => setState(() => notify = v)),
+        SwitchListTile(title: const Text('Звук'), value: sound, onChanged: (v) => setState(() => sound = v)),
+        SwitchListTile(
+          title: const Text('Режим «Тишина»'),
+          subtitle: const Text('Вместо уведомлений вы получаете дайджест того, что пропустили'),
+          value: quiet,
+          onChanged: (v) => setState(() => quiet = v),
+        ),
+        section('Приватность'),
+        ListTile(
+          title: const Text('Кто видит мой номер'),
+          trailing: DropdownButton<String>(
+            value: numberVisible,
+            underline: const SizedBox.shrink(),
+            items: const [
+              DropdownMenuItem(value: 'all', child: Text('Все')),
+              DropdownMenuItem(value: 'contacts', child: Text('Контакты')),
+              DropdownMenuItem(value: 'nobody', child: Text('Никто')),
+            ],
+            onChanged: (v) => setState(() => numberVisible = v ?? numberVisible),
+          ),
+        ),
+        SwitchListTile(title: const Text('Скрывать мои подписки'), value: hideSubs, onChanged: (v) => setState(() => hideSubs = v)),
+        ListTile(leading: const Icon(Icons.block), title: const Text('Заблокированные'), subtitle: const Text('Никого нет'), onTap: () {}),
+        section('Безопасность'),
+        ListTile(
+          leading: const Icon(Icons.devices),
+          title: const Text('Активные сеансы'),
+          subtitle: const Text('Этот телефон · сейчас'),
+          onTap: () => showDialog<void>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: const Text('Активные сеансы'),
+              content: const Text('Этот телефон: сейчас в сети.\n\nЗавершить сеансы на других устройствах можно будет здесь.'),
+              actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Закрыть'))],
+            ),
+          ),
+        ),
+        section('Данные и память'),
+        ListTile(
+          leading: const Icon(Icons.cleaning_services_outlined),
+          title: const Text('Очистить кэш'),
+          onTap: () => ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Кэш очищен (в макете условно)'))),
+        ),
+        section('О приложении'),
+        ListTile(title: const Text('Версия'), trailing: Text('0.0.1', style: TextStyle(color: cs.onSurfaceVariant))),
+        const SizedBox(height: 24),
+      ]),
+    );
+  }
+}
+
 // ---------- Статусы ----------
 
 class StatusItem {
@@ -914,6 +1025,12 @@ class ProfilePage extends StatelessWidget {
               Text('подписок'),
             ]),
             const SizedBox(height: 16),
+            OutlinedButton.icon(
+              onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const SettingsPage())),
+              icon: const Icon(Icons.settings_outlined),
+              label: const Text('Настройки'),
+            ),
+            const SizedBox(height: 12),
             const Wrap(spacing: 8, children: [
               Chip(label: Text('Видео'), backgroundColor: seed, labelStyle: TextStyle(color: Colors.white)),
               Chip(label: Text('Сохранённое')),
