@@ -73,13 +73,18 @@ class ChatItem {
   final String name, last, time, initials;
   final Color color;
   final int unread;
-  const ChatItem(this.name, this.last, this.time, this.initials, this.color, [this.unread = 0]);
+  final bool group;
+  final List<String> members;
+  final int? ttlDays;
+  const ChatItem(this.name, this.last, this.time, this.initials, this.color, [this.unread = 0, this.group = false, this.members = const [], this.ttlDays]);
 }
 
-const chatItems = [
+final chatsRevision = ValueNotifier<int>(0);
+
+final chatItems = <ChatItem>[
   ChatItem('Руслан', 'Завтра на озеро в семь?', '11:42', 'Р', seed, 2),
-  ChatItem('Группа 11-Б', 'Лейла: конспект уже в канале', '10:15', 'Г', teal),
-  ChatItem('Поездка в Шеки', 'Комната закроется через 6 дней', 'вчера', 'Ш', rust),
+  ChatItem('Группа 11-Б', 'Лейла: конспект уже в канале', '10:15', 'Г', teal, 0, true, ['Лейла', 'Рустам', 'Нигяр']),
+  ChatItem('Поездка в Шеки', 'Комната закроется через 6 дней', 'вчера', 'Ш', rust, 0, true, ['Нигяр', 'Эльчин'], 7),
   ChatItem('Мама', 'Видео-ответ · 0:14', 'вчера', 'М', Color(0xFF5A6280)),
 ];
 
@@ -87,7 +92,10 @@ class ChatsPage extends StatelessWidget {
   const ChatsPage({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      ValueListenableBuilder<int>(valueListenable: chatsRevision, builder: (context, _, __) => _page(context));
+
+  Widget _page(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Scaffold(
       appBar: AppBar(
@@ -215,14 +223,17 @@ class _ConversationPageState extends State<ConversationPage> {
     final hasText = draft.text.trim().isNotEmpty;
     return Scaffold(
       appBar: AppBar(
-        title: Row(children: [
+        title: InkWell(
+          onTap: item.group ? () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => GroupInfoPage(item: item))) : null,
+          child: Row(children: [
           Avatar(item.initials, item.color, size: 38),
           const SizedBox(width: 10),
           Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(item.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
-            const Text('в сети', style: TextStyle(fontSize: 12, color: teal)),
+            Text(item.group ? '${item.members.length + 1} участников' : 'в сети', style: const TextStyle(fontSize: 12, color: teal)),
           ]),
         ]),
+        ),
       ),
       body: Column(children: [
         if (item.name == 'Руслан')
@@ -288,7 +299,7 @@ class _NewChatPageState extends State<NewChatPage> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
           child: SearchBar(hintText: 'Имя или номер телефона', leading: const Icon(Icons.search), elevation: const WidgetStatePropertyAll(0), onChanged: (v) => setState(() => q = v)),
         ),
-        ListTile(leading: const CircleAvatar(child: Icon(Icons.group_add_outlined)), title: const Text('Создать группу'), onTap: () {}),
+        ListTile(leading: const CircleAvatar(child: Icon(Icons.group_add_outlined)), title: const Text('Создать группу'), onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const NewGroupPage()))),
         ListTile(leading: const CircleAvatar(child: Icon(Icons.public)), title: const Text('Создать орбиту'), onTap: () {}),
         const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text('Друзья в Orbit', style: TextStyle(fontWeight: FontWeight.w600))),
         for (final p in list)
@@ -298,6 +309,138 @@ class _NewChatPageState extends State<NewChatPage> {
             onTap: () => Navigator.pushReplacement(context, MaterialPageRoute<void>(builder: (_) => ConversationPage(item: p))),
           ),
         if (list.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Text('Никого не нашли')),
+      ]),
+    );
+  }
+}
+
+// ---------- Группы ----------
+
+const demoPeople = [
+  ChatItem('Лейла', '', '', 'Л', teal),
+  ChatItem('Рустам', '', '', 'Р', Color(0xFF7C3AED)),
+  ChatItem('Нигяр', '', '', 'Н', rust),
+  ChatItem('Эльчин', '', '', 'Э', Color(0xFF5A6280)),
+];
+
+class NewGroupPage extends StatefulWidget {
+  const NewGroupPage({super.key});
+  @override
+  State<NewGroupPage> createState() => _NewGroupPageState();
+}
+
+class _NewGroupPageState extends State<NewGroupPage> {
+  final name = TextEditingController();
+  final picked = <String>{};
+  int? ttl; // null = постоянная группа
+
+  @override
+  void dispose() {
+    name.dispose();
+    super.dispose();
+  }
+
+  bool get valid => name.text.trim().isNotEmpty && picked.isNotEmpty;
+
+  void create() {
+    final title = name.text.trim();
+    final item = ChatItem(
+      title,
+      ttl == null ? 'Группа создана' : 'Комната закроется через $ttl дн.',
+      'сейчас',
+      title.substring(0, 1).toUpperCase(),
+      seed,
+      0,
+      true,
+      picked.toList(),
+      ttl,
+    );
+    chatItems.insert(0, item);
+    chatsRevision.value++;
+    Navigator.of(context).popUntil((r) => r.isFirst);
+    Navigator.push(context, MaterialPageRoute<void>(builder: (_) => ConversationPage(item: item)));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Новая группа')),
+      body: ListView(padding: const EdgeInsets.all(16), children: [
+        TextField(
+          controller: name,
+          maxLength: 80,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(labelText: 'Название группы', border: OutlineInputBorder()),
+        ),
+        const SizedBox(height: 8),
+        const Text('Срок жизни', style: TextStyle(fontWeight: FontWeight.w600)),
+        const SizedBox(height: 4),
+        Text('Временная комната удалится сама, например после поездки или события.', style: TextStyle(fontSize: 13, color: cs.onSurfaceVariant)),
+        const SizedBox(height: 8),
+        Wrap(spacing: 8, children: [
+          ChoiceChip(label: const Text('Постоянная'), selected: ttl == null, onSelected: (_) => setState(() => ttl = null)),
+          for (final d in const [1, 7, 30])
+            ChoiceChip(label: Text(d == 1 ? '1 день' : '$d дней'), selected: ttl == d, onSelected: (_) => setState(() => ttl = d)),
+        ]),
+        const SizedBox(height: 16),
+        Text('Участники (${picked.length})', style: const TextStyle(fontWeight: FontWeight.w600)),
+        for (final p in demoPeople)
+          CheckboxListTile(
+            contentPadding: EdgeInsets.zero,
+            secondary: Avatar(p.initials, p.color, size: 44),
+            title: Text(p.name),
+            value: picked.contains(p.name),
+            onChanged: (v) => setState(() => v == true ? picked.add(p.name) : picked.remove(p.name)),
+          ),
+        const SizedBox(height: 12),
+        FilledButton(onPressed: valid ? create : null, child: const Padding(padding: EdgeInsets.all(14), child: Text('Создать группу'))),
+      ]),
+    );
+  }
+}
+
+class GroupInfoPage extends StatelessWidget {
+  final ChatItem item;
+  const GroupInfoPage({super.key, required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
+    final colors = {for (final p in demoPeople) p.name: p.color};
+    return Scaffold(
+      appBar: AppBar(title: const Text('О группе')),
+      body: ListView(children: [
+        const SizedBox(height: 16),
+        Center(child: Avatar(item.initials, item.color, size: 88)),
+        const SizedBox(height: 12),
+        Center(child: Text(item.name, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold))),
+        Center(child: Text('${item.members.length + 1} участников', style: TextStyle(color: cs.onSurfaceVariant))),
+        if (item.ttlDays != null)
+          Container(
+            margin: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(color: cs.surfaceContainerHighest, borderRadius: BorderRadius.circular(12)),
+            child: Row(children: [
+              const Icon(Icons.timer_outlined),
+              const SizedBox(width: 12),
+              Expanded(child: Text('Временная комната: удалится через ${item.ttlDays} дн.')),
+            ]),
+          ),
+        const Padding(padding: EdgeInsets.fromLTRB(16, 12, 16, 4), child: Text('Участники', style: TextStyle(fontWeight: FontWeight.w600))),
+        ListTile(
+          leading: const Avatar('ВЫ', seed, size: 44),
+          title: const Text('Вы'),
+          trailing: Text('владелец', style: TextStyle(color: cs.primary, fontSize: 13)),
+        ),
+        for (final m in item.members)
+          ListTile(
+            leading: Avatar(m.substring(0, 1), colors[m] ?? const Color(0xFF5A6280), size: 44),
+            title: Text(m),
+            trailing: Text('участник', style: TextStyle(color: cs.onSurfaceVariant, fontSize: 13)),
+          ),
+        ListTile(leading: const CircleAvatar(child: Icon(Icons.person_add_alt_1)), title: const Text('Добавить участника'), onTap: () {}),
+        ListTile(leading: Icon(Icons.exit_to_app, color: cs.error), title: Text('Выйти из группы', style: TextStyle(color: cs.error)), onTap: () {}),
       ]),
     );
   }
